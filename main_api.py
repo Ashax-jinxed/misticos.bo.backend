@@ -287,3 +287,12 @@ def api_calcular_carta(req: RequestCarta):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # o dominio específico si quieres más seguridad
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
