@@ -1,19 +1,23 @@
 # main_api.py
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Literal
-from fastapi.middleware.cors import CORSMiddleware
 import swisseph as swe
+import os
+from pathlib import Path
 
-# Ruta de efemérides (ajústala si cambias de carpeta)
-EPHE_PATH = r"C:\Users\carlo\Desktop\Pruebas"
+# Ruta de efemérides compatible con Render (Linux) y local (Windows)
+BASE_DIR = Path(__file__).resolve().parent
+EPHE_PATH = str(BASE_DIR / "ephe")
 
 # --- FastAPI app ---
-app = FastAPI(title="API Carta Natal - Local")
+app = FastAPI(title="API Carta Natal - Render")
 
+# Configuración de CORS (una sola vez)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "*"],
+    allow_origins=["*"],  # En producción puedes especificar tu dominio de Netlify
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,8 +26,13 @@ app.add_middleware(
 # Configurar Swiss Ephemeris en el arranque de la app
 @app.on_event("startup")
 def inicializar_swisseph():
+    if not os.path.exists(EPHE_PATH):
+        print(f"⚠️ ADVERTENCIA: La carpeta de efemérides no existe en: {EPHE_PATH}")
+        print("   Creando carpeta...")
+        os.makedirs(EPHE_PATH, exist_ok=True)
+    
     swe.set_ephe_path(EPHE_PATH)
-    print(f"[SwissEphem] Ruta de efemérides configurada en: {EPHE_PATH}")
+    print(f"✅ [SwissEphem] Ruta de efemérides configurada en: {EPHE_PATH}")
 
 
 def obtener_signo_grado(longitud_ec):
@@ -37,9 +46,8 @@ def obtener_signo_grado(longitud_ec):
 
 
 def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_horaria, sistema_casas='P'):
-
-    # <<< ARREGLO DEFINITIVO >>>
-    swe.set_ephe_path(EPHE_PATH)   # ← ESTA ES LA CLAVE
+    # Configurar ruta de efemérides
+    swe.set_ephe_path(EPHE_PATH)
 
     # convierte hora local a UTC y obtiene JD
     hora_utc = hora - zona_horaria
@@ -53,7 +61,6 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
 
     jd = swe.julday(año, mes, dia_utc, hora_utc + minuto/60.0)
 
-
     # calcular casas (Placidus para obtener ASC/MC)
     casas_data = swe.houses(jd, latitud, longitud, b'P')
     cuspides_placidus = list(casas_data[0][:12])
@@ -61,7 +68,7 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
     mc = casas_data[1][1]
     signo_ascendente = int(ascendente // 30) % 12
 
-    # configurar cuspides según sistema
+    # configurar cúspides según sistema
     if sistema_casas == 'W':
         cuspides = [(signo_ascendente * 30 + i * 30) % 360 for i in range(12)]
 
@@ -75,7 +82,7 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
         cuspides = cuspides_placidus
 
         def obtener_casa_placidus(long_ec):
-            # compara con cuspides (en grados eclípticos)
+            # compara con cúspides (en grados eclípticos)
             # normaliza para el cruce de 0°
             for i in range(12):
                 a = cuspides[i]
@@ -147,7 +154,7 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
             'longitud': longitud_sur
         }
     except Exception as e:
-        print(f"Error calculando Nodo Norte: {e}")
+        print(f"❌ Error calculando Nodo Norte: {e}")
 
     # LILITH (MEAN_APOG)
     try:
@@ -163,13 +170,13 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
             'longitud': longitud
         }
     except Exception as e:
-        print(f"Error calculando Lilith: {e}")
+        print(f"❌ Error calculando Lilith: {e}")
 
     # QUIRÓN - Método mejorado
     quiron_calculado = False
-    print("Iniciando cálculo de Quirón...")
+    print("🔍 Iniciando cálculo de Quirón...")
     try:
-        print("Intentando método 1: calc_ut simple")
+        print("   Intentando método 1: calc_ut simple")
         pos, _ = swe.calc_ut(jd, swe.CHIRON)
         longitud = float(pos[0])
         signo, grado = obtener_signo_grado(longitud)
@@ -182,12 +189,12 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
             'longitud': longitud
         }
         quiron_calculado = True
-        print(f"✓ Quirón calculado exitosamente: {signo} {grado:.2f}°")
+        print(f"✅ Quirón calculado exitosamente: {signo} {grado:.2f}°")
     except Exception as e:
-        print(f"✗ Error calculando Quirón con método principal: {e}")
+        print(f"❌ Error calculando Quirón con método principal: {e}")
 
     if not quiron_calculado:
-        print("⚠ No se pudo calcular Quirón, usando valor por defecto")
+        print("⚠️ No se pudo calcular Quirón, usando valor por defecto")
         carta['QUIRON'] = {
             'signo': 'N/A',
             'grado': 0.0,
@@ -211,7 +218,7 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
             'longitud': fortuna_long
         }
     except Exception as e:
-        print(f"Error calculando Parte de Fortuna: {e}")
+        print(f"❌ Error calculando Parte de Fortuna: {e}")
 
     # ASC y MC
     signo_asc, grado_asc = obtener_signo_grado(ascendente)
@@ -231,7 +238,7 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
         'longitud': float(mc)
     }
 
-    # devolver cuspides
+    # devolver cúspides
     signos_list = [
         "ARIES","TAURO","GEMINIS","CANCER","LEO","VIRGO",
         "LIBRA","ESCORPIO","SAGITARIO","CAPRICORNIO","ACUARIO","PISCIS"
@@ -262,37 +269,43 @@ class RequestCarta(BaseModel):
 @app.post("/calcular-carta")
 def api_calcular_carta(req: RequestCarta):
     print(f"\n{'=' * 50}")
-    print(f"Nueva petición recibida:")
-    print(f"Fecha: {req.año}-{req.mes}-{req.dia} {req.hora}:{req.minuto}")
-    print(f"Ubicación: Lat {req.latitud}, Lon {req.longitud}")
-    print(f"Zona horaria: UTC{req.zona_horaria:+d}")
-    print(f"Sistema: {req.sistema}")
+    print(f"📥 Nueva petición recibida:")
+    print(f"   Fecha: {req.año}-{req.mes}-{req.dia} {req.hora}:{req.minuto}")
+    print(f"   Ubicación: Lat {req.latitud}, Lon {req.longitud}")
+    print(f"   Zona horaria: UTC{req.zona_horaria:+d}")
+    print(f"   Sistema: {req.sistema}")
     print(f"{'=' * 50}")
 
     try:
-        print("Iniciando cálculo de carta natal...")
+        print("🔄 Iniciando cálculo de carta natal...")
         resultado = calcular_carta_natal(
             req.año, req.mes, req.dia, req.hora, req.minuto,
             req.latitud, req.longitud, req.zona_horaria, sistema_casas=req.sistema
         )
-        print("✓ Carta natal calculada exitosamente")
+        print("✅ Carta natal calculada exitosamente")
         print(f"{'=' * 50}\n")
         return resultado
     except Exception as e:
-        print(f"✗ ERROR: {str(e)}")
+        print(f"❌ ERROR: {str(e)}")
         print(f"{'=' * 50}\n")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
-from fastapi.middleware.cors import CORSMiddleware
+    return {
+        "status": "ok",
+        "ephe_path": EPHE_PATH,
+        "ephe_exists": os.path.exists(EPHE_PATH)
+    }
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # o dominio específico si quieres más seguridad
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+@app.get("/")
+def root():
+    return {
+        "message": "API Carta Natal - Render",
+        "endpoints": {
+            "health": "/health",
+            "calcular_carta": "/calcular-carta [POST]"
+        }
+    }
