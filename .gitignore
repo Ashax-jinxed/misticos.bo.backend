@@ -1,0 +1,69 @@
+# ────────────────────────────────
+# Python / FastAPI Backend
+# ────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+
+# Entornos virtuales
+venv/
+env/
+.venv/
+
+# Dependencias y compilados
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+
+# Configs que no deben subirse
+.env
+.env.*
+*.env
+secrets.json
+
+# Cache
+.cache/
+.mypy_cache/
+.pytest_cache/
+pip-wheel-metadata/
+
+# ────────────────────────────────
+# Node / React Frontend
+# ────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output
+/build
+/.parcel-cache
+/.next
+out/
+.svelte-kit
+
+# Env front
+.env.local
+.env.production
+.env.development
+
+# ────────────────────────────────
+# IDE / OS files
+# ────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# ────────────────────────────────
+# Compilación rápida Front + Back
+# ────────────────────────────────
+**/coverage/

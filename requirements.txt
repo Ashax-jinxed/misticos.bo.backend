@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pydantic
+typing_extensions
+swisseph
+pyswisseph
