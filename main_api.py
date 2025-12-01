@@ -6,6 +6,7 @@ from typing import Literal
 import swisseph as swe
 import os
 from pathlib import Path
+from datetime import datetime, timedelta
 
 # Ruta de efemérides compatible con Render (Linux) y local (Windows)
 BASE_DIR = Path(__file__).resolve().parent
@@ -35,14 +36,17 @@ def inicializar_swisseph():
     print(f"✅ [SwissEphem] Ruta de efemérides configurada en: {EPHE_PATH}")
 
 
+# Lista de signos global para reutilizar
+SIGNOS = [
+    "ARIES","TAURO","GEMINIS","CANCER","LEO","VIRGO",
+    "LIBRA","ESCORPIO","SAGITARIO","CAPRICORNIO","ACUARIO","PISCIS"
+]
+
+
 def obtener_signo_grado(longitud_ec):
-    signos = [
-        "ARIES","TAURO","GEMINIS","CANCER","LEO","VIRGO",
-        "LIBRA","ESCORPIO","SAGITARIO","CAPRICORNIO","ACUARIO","PISCIS"
-    ]
     signo_index = int(longitud_ec // 30) % 12
     grado = (longitud_ec % 30)
-    return signos[signo_index], grado
+    return SIGNOS[signo_index], grado
 
 
 def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_horaria, sistema_casas='P'):
@@ -238,15 +242,11 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
         'longitud': float(mc)
     }
 
-    # devolver cúspides
-    signos_list = [
-        "ARIES","TAURO","GEMINIS","CANCER","LEO","VIRGO",
-        "LIBRA","ESCORPIO","SAGITARIO","CAPRICORNIO","ACUARIO","PISCIS"
-    ]
+    # devolver cúspides como signos
     cuspides_signos = {}
     for idx, cdeg in enumerate(cuspides, start=1):
         signo_idx = int(cdeg // 30) % 12
-        cuspides_signos[str(idx)] = signos_list[signo_idx]
+        cuspides_signos[str(idx)] = SIGNOS[signo_idx]
 
     return {
         "carta": carta,
@@ -264,10 +264,7 @@ class RequestCarta(BaseModel):
     longitud: float
     zona_horaria: int
     sistema: Literal['P', 'W'] = 'P'
-    
-# AGREGAR ESTO AL ARCHIVO main_api.py (después de la clase RequestCarta)
 
-from datetime import datetime, timedelta
 
 class RequestTransitos(BaseModel):
     fecha_inicio: str  # formato "YYYY-MM-DD"
@@ -283,9 +280,40 @@ class RequestTransitos(BaseModel):
     sistema: Literal['P', 'W'] = 'P'
 
 
-def calcular_transitos_planeta(planeta_num, nombre_planeta, fecha_inicio, fecha_final, 
-                                año_natal, mes_natal, dia_natal, hora_natal, minuto_natal,
-                                latitud_natal, longitud_natal, zona_horaria_natal, sistema_casas='P'):
+# ========= NUEVO: BUSCADOR EXACTO DE INGRESO DE SIGNO =========
+
+def encontrar_ingreso_signo(jd1, jd2, planeta_num):
+    """
+    Dado un intervalo [jd1, jd2] donde sabemos que hubo cambio de signo,
+    usamos búsqueda binaria para encontrar la fecha exacta del ingreso.
+    """
+    for _ in range(22):  # suficiente para precisión muy alta
+        mid = (jd1 + jd2) / 2
+        lon1 = swe.calc_ut(jd1, planeta_num, swe.FLG_SWIEPH)[0][0] % 360
+        lonm = swe.calc_ut(mid, planeta_num, swe.FLG_SWIEPH)[0][0] % 360
+
+        if int(lon1 // 30) == int(lonm // 30):
+            jd1 = mid
+        else:
+            jd2 = mid
+    return jd2
+
+
+def calcular_transitos_planeta(
+    planeta_num,
+    nombre_planeta,
+    fecha_inicio,
+    fecha_final, 
+    año_natal,
+    mes_natal,
+    dia_natal,
+    hora_natal,
+    minuto_natal,
+    latitud_natal,
+    longitud_natal,
+    zona_horaria_natal,
+    sistema_casas='P'
+):
     """
     Calcula todos los tránsitos de un planeta entre dos fechas.
     Retorna lista de eventos: cambios de signo, casa y retrogradaciones.
@@ -362,16 +390,23 @@ def calcular_transitos_planeta(planeta_num, nombre_planeta, fecha_inicio, fecha_
             casa_actual = obtener_casa(longitud)
             retrogrado_actual = velocidad < 0
             
-            # Detectar cambio de signo
+            # Detectar cambio de signo con ingreso exacto
             if signo_anterior is not None and signo_actual != signo_anterior:
-                signos = ["ARIES","TAURO","GEMINIS","CANCER","LEO","VIRGO",
-                         "LIBRA","ESCORPIO","SAGITARIO","CAPRICORNIO","ACUARIO","PISCIS"]
+                jd_prev = swe.julday(
+                    (fecha_actual - delta).year,
+                    (fecha_actual - delta).month,
+                    (fecha_actual - delta).day,
+                    12.0
+                )
+                jd_ingreso = encontrar_ingreso_signo(jd_prev, jd, planeta_num)
+                y, m, d, _ = swe.revjul(jd_ingreso)
+
                 eventos.append({
                     "tipo": "cambio_signo",
-                    "fecha": fecha_actual.strftime("%Y-%m-%d"),
-                    "signo_anterior": signos[signo_anterior],
-                    "signo_nuevo": signos[signo_actual],
-                    "descripcion": f"Ingresa a {signos[signo_actual]}"
+                    "fecha": f"{y}-{m:02d}-{d:02d}",
+                    "signo_anterior": SIGNOS[signo_anterior],
+                    "signo_nuevo": SIGNOS[signo_actual],
+                    "descripcion": f"Ingresa a {SIGNOS[signo_actual]}"
                 })
             
             # Detectar cambio de casa
@@ -425,18 +460,15 @@ def calcular_transitos_planeta(planeta_num, nombre_planeta, fecha_inicio, fecha_
         signo_final = int(long_final // 30) % 12
         casa_final = obtener_casa(long_final)
         
-        signos = ["ARIES","TAURO","GEMINIS","CANCER","LEO","VIRGO",
-                 "LIBRA","ESCORPIO","SAGITARIO","CAPRICORNIO","ACUARIO","PISCIS"]
-        
         posicion_inicial = {
-            "signo": signos[signo_inicio],
+            "signo": SIGNOS[signo_inicio],
             "casa": casa_inicio,
             "grado": float(long_inicio % 30),
             "retrogrado": vel_inicio < 0
         }
         
         posicion_final = {
-            "signo": signos[signo_final],
+            "signo": SIGNOS[signo_final],
             "casa": casa_final,
             "grado": float(long_final % 30),
             "retrogrado": vel_final < 0
@@ -518,6 +550,7 @@ def api_calcular_transitos(req: RequestTransitos):
         print(f"{'=' * 50}\n")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/calcular-carta")
 def api_calcular_carta(req: RequestCarta):
     print(f"\n{'=' * 50}")
@@ -558,6 +591,7 @@ def root():
         "message": "API Carta Natal - Render",
         "endpoints": {
             "health": "/health",
-            "calcular_carta": "/calcular-carta [POST]"
+            "calcular_carta": "/calcular-carta [POST]",
+            "calcular_transitos": "/calcular-transitos [POST]"
         }
     }
