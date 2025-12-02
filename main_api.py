@@ -1,8 +1,7 @@
-# main_api.py
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Dict, Any
 import swisseph as swe
 import os
 from pathlib import Path
@@ -42,8 +41,29 @@ SIGNOS = [
     "LIBRA","ESCORPIO","SAGITARIO","CAPRICORNIO","ACUARIO","PISCIS"
 ]
 
+# Aspectos a considerar y orbes en grados
+ASPECTOS = {
+    "conjuncion": {"angulo": 0, "orbe": 6},
+    "sextil": {"angulo": 60, "orbe": 4},
+    "cuadratura": {"angulo": 90, "orbe": 5},
+    "trigono": {"angulo": 120, "orbe": 5},
+    "oposicion": {"angulo": 180, "orbe": 6},
+}
 
-def obtener_signo_grado(longitud_ec):
+# Cuerpos natales relevantes para aspectos
+CUERPOS_NATALES_RELEVANTES = {
+    "SOL", "LUNA", "MERCURIO", "VENUS", "MARTE",
+    "JUPITER", "SATURNO", "URANO", "NEPTUNO", "PLUTON",
+    "ASCENDENTE", "MEDIO_CIELO",
+    "NODO_NORTE", "NODO_SUR",
+    "LILITH", "QUIRON",
+}
+
+# Planetas con "retorno" relevante
+PLANETAS_RETORNO = {"JUPITER", "SATURNO", "QUIRON", "NODO_NORTE"}
+
+
+def obtener_signo_grado(longitud_ec: float):
     signo_index = int(longitud_ec // 30) % 12
     grado = (longitud_ec % 30)
     return SIGNOS[signo_index], grado
@@ -229,7 +249,7 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
     carta['ASCENDENTE'] = {
         'signo': signo_asc,
         'grado': float(grado_asc),
-        'casa': obtener_casa(ascendente),
+        'casa': 1,
         'retrogrado': False,
         'longitud': float(ascendente)
     }
@@ -237,7 +257,7 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
     carta['MEDIO_CIELO'] = {
         'signo': signo_mc,
         'grado': float(grado_mc),
-        'casa': obtener_casa(mc),
+        'casa': 10,
         'retrogrado': False,
         'longitud': float(mc)
     }
@@ -252,6 +272,88 @@ def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_h
         "carta": carta,
         "cuspides": cuspides_signos
     }
+
+
+def construir_posiciones_natales(año, mes, dia, hora, minuto, latitud, longitud, zona_horaria, sistema_casas='P') -> Dict[str, Any]:
+    """
+    Utilidad: obtiene carta natal y devuelve solo las posiciones natales relevantes
+    (incluyendo longitudes) para cálculo de aspectos de tránsitos.
+    """
+    datos = calcular_carta_natal(
+        año, mes, dia, hora, minuto,
+        latitud, longitud, zona_horaria,
+        sistema_casas=sistema_casas
+    )
+    carta = datos.get("carta", {})
+    posiciones = {}
+    for nombre, info in carta.items():
+        if nombre in CUERPOS_NATALES_RELEVANTES and "longitud" in info:
+            posiciones[nombre] = {
+                "longitud": float(info["longitud"]),
+                "casa": int(info.get("casa", 0)),
+                "signo": info.get("signo")
+            }
+    return posiciones
+
+
+def distancia_aspecto(diff_raw: float, angulo_objetivo: float) -> float:
+    """
+    diff_raw: diferencia en grados (0..360) entre tránsito y natal (long_transito - long_natal)
+    angulo_objetivo: 0, 60, 90, 120, 180
+    """
+    diff_raw = diff_raw % 360.0
+    if angulo_objetivo == 0:
+        # conjunción
+        return min(diff_raw, 360.0 - diff_raw)
+    if angulo_objetivo == 180:
+        # oposición
+        return abs(diff_raw - 180.0)
+    # otros aspectos: considerar ángulo y su complemento 360-ángulo
+    return min(abs(diff_raw - angulo_objetivo), abs(diff_raw - (360.0 - angulo_objetivo)))
+
+
+def encontrar_momento_aspecto(jd1: float, jd2: float, planeta_num: int, natal_long: float, angulo_objetivo: float):
+    """
+    Búsqueda binaria para encontrar el momento donde el aspecto es más exacto
+    dentro del intervalo [jd1, jd2].
+    Devuelve (jd_exacto, longitud_transito_exacto).
+    """
+    for _ in range(22):
+        mid = (jd1 + jd2) / 2.0
+        lon1 = swe.calc_ut(jd1, planeta_num, swe.FLG_SWIEPH)[0][0] % 360.0
+        lonm = swe.calc_ut(mid, planeta_num, swe.FLG_SWIEPH)[0][0] % 360.0
+
+        diff1 = (lon1 - natal_long) % 360.0
+        diffm = (lonm - natal_long) % 360.0
+
+        d1 = distancia_aspecto(diff1, angulo_objetivo)
+        dm = distancia_aspecto(diffm, angulo_objetivo)
+
+        if d1 < dm:
+            jd2 = mid
+        else:
+            jd1 = mid
+
+    jd_exacto = (jd1 + jd2) / 2.0
+    lon_exacta = swe.calc_ut(jd_exacto, planeta_num, swe.FLG_SWIEPH)[0][0] % 360.0
+    return jd_exacto, lon_exacta
+
+
+def encontrar_ingreso_signo(jd1, jd2, planeta_num):
+    """
+    Dado un intervalo [jd1, jd2] donde sabemos que hubo cambio de signo,
+    usamos búsqueda binaria para encontrar la fecha exacta del ingreso.
+    """
+    for _ in range(22):  # suficiente para precisión muy alta
+        mid = (jd1 + jd2) / 2
+        lon1 = swe.calc_ut(jd1, planeta_num, swe.FLG_SWIEPH)[0][0] % 360
+        lonm = swe.calc_ut(mid, planeta_num, swe.FLG_SWIEPH)[0][0] % 360
+
+        if int(lon1 // 30) == int(lonm // 30):
+            jd1 = mid
+        else:
+            jd2 = mid
+    return jd2
 
 
 class RequestCarta(BaseModel):
@@ -280,25 +382,6 @@ class RequestTransitos(BaseModel):
     sistema: Literal['P', 'W'] = 'P'
 
 
-# ========= NUEVO: BUSCADOR EXACTO DE INGRESO DE SIGNO =========
-
-def encontrar_ingreso_signo(jd1, jd2, planeta_num):
-    """
-    Dado un intervalo [jd1, jd2] donde sabemos que hubo cambio de signo,
-    usamos búsqueda binaria para encontrar la fecha exacta del ingreso.
-    """
-    for _ in range(22):  # suficiente para precisión muy alta
-        mid = (jd1 + jd2) / 2
-        lon1 = swe.calc_ut(jd1, planeta_num, swe.FLG_SWIEPH)[0][0] % 360
-        lonm = swe.calc_ut(mid, planeta_num, swe.FLG_SWIEPH)[0][0] % 360
-
-        if int(lon1 // 30) == int(lonm // 30):
-            jd1 = mid
-        else:
-            jd2 = mid
-    return jd2
-
-
 def calcular_transitos_planeta(
     planeta_num,
     nombre_planeta,
@@ -312,15 +395,16 @@ def calcular_transitos_planeta(
     latitud_natal,
     longitud_natal,
     zona_horaria_natal,
-    sistema_casas='P'
+    sistema_casas='P',
+    posiciones_natales: Dict[str, Any] = None,
 ):
     """
     Calcula todos los tránsitos de un planeta entre dos fechas.
-    Retorna lista de eventos: cambios de signo, casa y retrogradaciones.
+    Retorna lista de eventos: cambios de signo, casa, retrogradaciones y aspectos.
     """
     swe.set_ephe_path(EPHE_PATH)
     
-    # Calcular carta natal para obtener las cúspides
+    # Calcular casas natales para obtener cúspides. Se calculan una sola vez a partir de la carta natal.
     hora_utc_natal = hora_natal - zona_horaria_natal
     dia_utc_natal = dia_natal
     if hora_utc_natal >= 24:
@@ -336,7 +420,7 @@ def calcular_transitos_planeta(
     ascendente = casas_data[1][0]
     signo_ascendente = int(ascendente // 30) % 12
     
-    # Configurar función de casas
+    # Configurar función de casas para los tránsitos (usando la carta natal)
     if sistema_casas == 'W':
         cuspides = [(signo_ascendente * 30 + i * 30) % 360 for i in range(12)]
         def obtener_casa(long_ec):
@@ -365,83 +449,211 @@ def calcular_transitos_planeta(
     f_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d")
     f_final = datetime.strptime(fecha_final, "%Y-%m-%d")
     
-    # Determinar incremento según el planeta (Luna: cada 12h, planetas rápidos: cada día, lentos: cada 3 días)
+    # Determinar incremento según el planeta
     if nombre_planeta == "LUNA":
-        delta = timedelta(hours=12)
+        delta = timedelta(hours=1)
     elif nombre_planeta in ["SOL", "MERCURIO", "VENUS", "MARTE"]:
-        delta = timedelta(days=1)
+        delta = timedelta(hours=12)
     else:
-        delta = timedelta(days=3)
+        # planetas lentos, nodos, quirón
+        delta = timedelta(days=1)
     
     fecha_actual = f_inicio
     signo_anterior = None
     casa_anterior = None
     retrogrado_anterior = None
+
+    # Para detectar aspectos como "ventana" (inicio-exacto-fin)
+    # estados_aspectos[(nombre_natal, nombre_aspecto)] = {...}
+    estados_aspectos: Dict[str, Dict[str, Any]] = {}
+
+    # Función para obtener key única de aspecto
+    def key_aspecto(nombre_natal: str, aspecto: str) -> str:
+        return f"{nombre_planeta}__{nombre_natal}__{aspecto}"
+
+    jd_prev = None
+    fecha_prev = None
     
     while fecha_actual <= f_final:
         jd = swe.julday(fecha_actual.year, fecha_actual.month, fecha_actual.day, 12.0)
         
         try:
             res = swe.calc_ut(jd, planeta_num, swe.FLG_SWIEPH | swe.FLG_SPEED)
-            longitud = float(res[0][0])
+            longitud = float(res[0][0]) % 360.0
             velocidad = float(res[0][3])
             
-            signo_actual = int(longitud // 30) % 12
+            signo_actual_idx = int(longitud // 30) % 12
+            signo_actual = SIGNOS[signo_actual_idx]
+            grado_actual = float(longitud % 30.0)
             casa_actual = obtener_casa(longitud)
             retrogrado_actual = velocidad < 0
             
             # Detectar cambio de signo con ingreso exacto
-            if signo_anterior is not None and signo_actual != signo_anterior:
-                jd_prev = swe.julday(
-                    (fecha_actual - delta).year,
-                    (fecha_actual - delta).month,
-                    (fecha_actual - delta).day,
+            if signo_anterior is not None and signo_actual_idx != signo_anterior:
+                jd_prev_signo = swe.julday(
+                    fecha_prev.year,
+                    fecha_prev.month,
+                    fecha_prev.day,
                     12.0
-                )
-                jd_ingreso = encontrar_ingreso_signo(jd_prev, jd, planeta_num)
+                ) if fecha_prev is not None else jd - 1.0
+                jd_ingreso = encontrar_ingreso_signo(jd_prev_signo, jd, planeta_num)
                 y, m, d, _ = swe.revjul(jd_ingreso)
-
                 eventos.append({
                     "tipo": "cambio_signo",
+                    "planeta": nombre_planeta,
                     "fecha": f"{y}-{m:02d}-{d:02d}",
                     "signo_anterior": SIGNOS[signo_anterior],
-                    "signo_nuevo": SIGNOS[signo_actual],
-                    "descripcion": f"Ingresa a {SIGNOS[signo_actual]}"
+                    "signo_nuevo": signo_actual,
+                    "descripcion": f"{nombre_planeta} ingresa a {signo_actual}",
+                    "longitud": longitud,
+                    "grado": grado_actual
                 })
             
             # Detectar cambio de casa
             if casa_anterior is not None and casa_actual != casa_anterior:
                 eventos.append({
                     "tipo": "cambio_casa",
+                    "planeta": nombre_planeta,
                     "fecha": fecha_actual.strftime("%Y-%m-%d"),
                     "casa_anterior": casa_anterior,
                     "casa_nueva": casa_actual,
-                    "descripcion": f"Ingresa a casa {casa_actual}"
+                    "descripcion": f"{nombre_planeta} ingresa a casa {casa_actual}",
+                    "longitud": longitud,
+                    "signo": signo_actual,
+                    "grado": grado_actual
                 })
             
             # Detectar cambio de retrogradación
             if retrogrado_anterior is not None and retrogrado_actual != retrogrado_anterior:
-                if retrogrado_actual:
-                    eventos.append({
-                        "tipo": "retrogrado_inicio",
-                        "fecha": fecha_actual.strftime("%Y-%m-%d"),
-                        "descripcion": "Inicia retrogradación"
-                    })
-                else:
-                    eventos.append({
-                        "tipo": "retrogrado_fin",
-                        "fecha": fecha_actual.strftime("%Y-%m-%d"),
-                        "descripcion": "Termina retrogradación (directo)"
-                    })
-            
-            signo_anterior = signo_actual
+                eventos.append({
+                    "tipo": "retrogrado_inicio" if retrogrado_actual else "retrogrado_fin",
+                    "planeta": nombre_planeta,
+                    "fecha": fecha_actual.strftime("%Y-%m-%d"),
+                    "descripcion": "Inicia retrogradación" if retrogrado_actual else "Termina retrogradación (directo)",
+                    "longitud": longitud,
+                    "signo": signo_actual,
+                    "grado": grado_actual
+                })
+
+            # ===== DETECCIÓN DE ASPECTOS A LA CARTA NATAL =====
+            if posiciones_natales:
+                for nombre_natal, info_natal in posiciones_natales.items():
+                    natal_long = float(info_natal["longitud"])
+                    diff_raw = (longitud - natal_long) % 360.0
+
+                    for nombre_aspecto, cfg in ASPECTOS.items():
+                        angulo = cfg["angulo"]
+                        orbe = cfg["orbe"]
+                        dist = distancia_aspecto(diff_raw, angulo)
+
+                        clave = key_aspecto(nombre_natal, nombre_aspecto)
+                        estado = estados_aspectos.get(clave)
+
+                        dentro_orbe = dist <= orbe
+
+                        # Entrando en orbe
+                        if (estado is None or not estado.get("activo")) and dentro_orbe:
+                            # Creamos nuevo estado
+                            estado = {
+                                "activo": True,
+                                "fecha_inicio": fecha_actual.strftime("%Y-%m-%d"),
+                                "jd_inicio": jd,
+                                "orbe_max": orbe,
+                                "angulo": angulo,
+                                "natal_long": natal_long,
+                            }
+
+                            # Momento exacto del aspecto (si tenemos jd_prev)
+                            if jd_prev is not None:
+                                jd_exacto, lon_exacto = encontrar_momento_aspecto(
+                                    jd_prev, jd, planeta_num, natal_long, angulo
+                                )
+                                y_e, m_e, d_e, _ = swe.revjul(jd_exacto)
+                                fecha_exacto = f"{y_e}-{m_e:02d}-{d_e:02d}"
+                                estado["fecha_exacto"] = fecha_exacto
+                                estado["jd_exacto"] = jd_exacto
+                                estado["longitud_transito_exacto"] = lon_exacto % 360.0
+                            else:
+                                # Primera iteración: tomamos la fecha actual como aproximación
+                                estado["fecha_exacto"] = fecha_actual.strftime("%Y-%m-%d")
+                                estado["jd_exacto"] = jd
+                                estado["longitud_transito_exacto"] = longitud
+
+                            estados_aspectos[clave] = estado
+
+                        # Saliendo del orbe
+                        elif estado is not None and estado.get("activo") and not dentro_orbe:
+                            fecha_fin = fecha_actual.strftime("%Y-%m-%d")
+
+                            es_retorno = (
+                                nombre_aspecto == "conjuncion"
+                                and nombre_planeta == nombre_natal
+                                and nombre_planeta in PLANETAS_RETORNO
+                            )
+
+                            eventos.append({
+                                "tipo": "retorno_planeta" if es_retorno else "aspecto",
+                                "planeta_transito": nombre_planeta,
+                                "planeta_natal": nombre_natal,
+                                "aspecto": nombre_aspecto,
+                                "angulo": estado["angulo"],
+                                "orbe_max": estado["orbe_max"],
+                                "fecha_inicio": estado["fecha_inicio"],
+                                "fecha_exacto": estado.get("fecha_exacto", estado["fecha_inicio"]),
+                                "fecha_fin": fecha_fin,
+                                "longitud_transito_exacto": estado.get("longitud_transito_exacto", longitud),
+                                "longitud_natal": natal_long,
+                                "casa_transito_aprox": casa_actual,
+                                "es_retorno": es_retorno,
+                            })
+
+                            # Marcar como cerrado
+                            estado["activo"] = False
+                            estados_aspectos[clave] = estado
+
+            signo_anterior = signo_actual_idx
             casa_anterior = casa_actual
             retrogrado_anterior = retrogrado_actual
+            jd_prev = jd
+            fecha_prev = fecha_actual
             
         except Exception as e:
             print(f"Error calculando {nombre_planeta} en {fecha_actual}: {e}")
         
         fecha_actual += delta
+    
+    # Cerrar aspectos que sigan activos al final del periodo
+    if posiciones_natales:
+        for clave, estado in estados_aspectos.items():
+            if estado.get("activo"):
+                partes = clave.split("__")
+                if len(partes) == 3:
+                    _, nombre_natal, nombre_aspecto = partes
+                else:
+                    nombre_natal = "DESCONOCIDO"
+                    nombre_aspecto = "desconocido"
+
+                es_retorno = (
+                    nombre_aspecto == "conjuncion"
+                    and nombre_planeta == nombre_natal
+                    and nombre_planeta in PLANETAS_RETORNO
+                )
+
+                eventos.append({
+                    "tipo": "retorno_planeta" if es_retorno else "aspecto",
+                    "planeta_transito": nombre_planeta,
+                    "planeta_natal": nombre_natal,
+                    "aspecto": nombre_aspecto,
+                    "angulo": estado["angulo"],
+                    "orbe_max": estado["orbe_max"],
+                    "fecha_inicio": estado["fecha_inicio"],
+                    "fecha_exacto": estado.get("fecha_exacto", estado["fecha_inicio"]),
+                    "fecha_fin": fecha_final,
+                    "longitud_transito_exacto": estado.get("longitud_transito_exacto"),
+                    "longitud_natal": estado.get("natal_long"),
+                    "casa_transito_aprox": None,
+                    "es_retorno": es_retorno,
+                })
     
     # Información inicial y final
     jd_inicio = swe.julday(f_inicio.year, f_inicio.month, f_inicio.day, 12.0)
@@ -449,13 +661,13 @@ def calcular_transitos_planeta(
     
     try:
         res_inicio = swe.calc_ut(jd_inicio, planeta_num, swe.FLG_SWIEPH | swe.FLG_SPEED)
-        long_inicio = float(res_inicio[0][0])
+        long_inicio = float(res_inicio[0][0]) % 360.0
         vel_inicio = float(res_inicio[0][3])
         signo_inicio = int(long_inicio // 30) % 12
         casa_inicio = obtener_casa(long_inicio)
         
         res_final = swe.calc_ut(jd_final, planeta_num, swe.FLG_SWIEPH | swe.FLG_SPEED)
-        long_final = float(res_final[0][0])
+        long_final = float(res_final[0][0]) % 360.0
         vel_final = float(res_final[0][3])
         signo_final = int(long_final // 30) % 12
         casa_final = obtener_casa(long_final)
@@ -464,14 +676,16 @@ def calcular_transitos_planeta(
             "signo": SIGNOS[signo_inicio],
             "casa": casa_inicio,
             "grado": float(long_inicio % 30),
-            "retrogrado": vel_inicio < 0
+            "retrogrado": vel_inicio < 0,
+            "longitud": long_inicio,
         }
         
         posicion_final = {
             "signo": SIGNOS[signo_final],
             "casa": casa_final,
             "grado": float(long_final % 30),
-            "retrogrado": vel_final < 0
+            "retrogrado": vel_final < 0,
+            "longitud": long_final,
         }
         
     except Exception as e:
@@ -479,11 +693,24 @@ def calcular_transitos_planeta(
         posicion_inicial = None
         posicion_final = None
     
+    # Ordenar eventos por fecha (tomando cualquiera de los campos de fecha disponibles)
+    def fecha_evento(ev):
+        # Prioridad: fecha, fecha_inicio, fecha_exacto
+        for campo in ["fecha", "fecha_inicio", "fecha_exacto"]:
+            if campo in ev and ev[campo]:
+                try:
+                    return datetime.strptime(ev[campo], "%Y-%m-%d")
+                except Exception:
+                    continue
+        return f_inicio
+
+    eventos_ordenados = sorted(eventos, key=fecha_evento)
+
     return {
         "planeta": nombre_planeta,
         "posicion_inicial": posicion_inicial,
         "posicion_final": posicion_final,
-        "eventos": eventos
+        "eventos": eventos_ordenados
     }
 
 
@@ -498,6 +725,19 @@ def api_calcular_transitos(req: RequestTransitos):
     print(f"{'=' * 50}")
     
     try:
+        # Calculamos UNA sola vez las posiciones natales relevantes para aspectos
+        posiciones_natales = construir_posiciones_natales(
+            req.año_natal,
+            req.mes_natal,
+            req.dia_natal,
+            req.hora_natal,
+            req.minuto_natal,
+            req.latitud_natal,
+            req.longitud_natal,
+            req.zona_horaria_natal,
+            sistema_casas=req.sistema
+        )
+
         planetas = {
             'SOL': swe.SUN,
             'LUNA': swe.MOON,
@@ -525,7 +765,8 @@ def api_calcular_transitos(req: RequestTransitos):
                 req.hora_natal, req.minuto_natal,
                 req.latitud_natal, req.longitud_natal,
                 req.zona_horaria_natal,
-                sistema_casas=req.sistema
+                sistema_casas=req.sistema,
+                posiciones_natales=posiciones_natales
             )
             resultados.append(resultado)
         
