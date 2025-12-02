@@ -380,6 +380,9 @@ class RequestTransitos(BaseModel):
     longitud_natal: float
     zona_horaria_natal: int
     sistema: Literal['P', 'W'] = 'P'
+    
+class RequestTransitosCielo(RequestTransitos):
+    incluir_luna: bool = True  # selector para incluir o no la Luna en los aspectos entre tránsitos
 
 
 def calcular_transitos_planeta(
@@ -733,6 +736,188 @@ def calcular_transitos_planeta(
         "posicion_final": posicion_final,
         "eventos": eventos_ordenados
     }
+    
+def calcular_aspectos_transito_vs_transito(
+    fecha_inicio: str,
+    fecha_final: str,
+    incluir_luna: bool = True
+):
+    """
+    Calcula aspectos entre planetas en tránsito (tránsito vs tránsito),
+    usando ventanas de aspecto (inicio - exacto - fin).
+    Devuelve una lista de estructuras por planeta:
+    { planeta, posicion_inicial=None, posicion_final=None, eventos=[...] }
+    """
+    swe.set_ephe_path(EPHE_PATH)
+
+    # Planetas a usar (cielo general)
+    planetas_dict = {
+        'SOL': swe.SUN,
+        'LUNA': swe.MOON,
+        'MERCURIO': swe.MERCURY,
+        'VENUS': swe.VENUS,
+        'MARTE': swe.MARS,
+        'JUPITER': swe.JUPITER,
+        'SATURNO': swe.SATURN,
+        'URANO': swe.URANUS,
+        'NEPTUNO': swe.NEPTUNE,
+        'PLUTON': swe.PLUTO
+    }
+
+    if not incluir_luna and 'LUNA' in planetas_dict:
+        del planetas_dict['LUNA']
+
+    nombres_planetas = list(planetas_dict.keys())
+
+    # contenedor de resultados por planeta
+    planet_events = {
+        nombre: {
+            "planeta": nombre,
+            "posicion_inicial": None,
+            "posicion_final": None,
+            "eventos": []
+        }
+        for nombre in nombres_planetas
+    }
+
+    # estados de ventana por par de planetas y aspecto
+    # clave: "PLANETA1__PLANETA2__aspecto"
+    estados = {}
+
+    # etiquetas de aspecto
+    ASPECTOS_LABEL = {
+        "conjuncion": "conjunción",
+        "sextil": "sextil",
+        "cuadratura": "cuadratura",
+        "trigono": "trígono",
+        "oposicion": "oposición",
+    }
+
+    f_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+    f_final = datetime.strptime(fecha_final, "%Y-%m-%d")
+    delta = timedelta(days=1)  # resolución diaria (suficiente para vista mensual)
+
+    fecha_actual = f_inicio
+
+    while fecha_actual <= f_final:
+        jd = swe.julday(fecha_actual.year, fecha_actual.month, fecha_actual.day, 12.0)
+
+        # calcular longitudes de todos los planetas en tránsito para este día
+        longitudes = {}
+        for nombre, num in planetas_dict.items():
+            try:
+                res = swe.calc_ut(jd, num, swe.FLG_SWIEPH)
+                longitudes[nombre] = float(res[0][0]) % 360.0
+            except Exception as e:
+                print(f"Error calculando {nombre} en {fecha_actual}: {e}")
+
+        fecha_str = fecha_actual.strftime("%Y-%m-%d")
+
+        # recorrer todos los pares de planetas
+        for i in range(len(nombres_planetas)):
+            for j in range(i + 1, len(nombres_planetas)):
+                p1 = nombres_planetas[i]
+                p2 = nombres_planetas[j]
+
+                if p1 not in longitudes or p2 not in longitudes:
+                    continue
+
+                lon1 = longitudes[p1]
+                lon2 = longitudes[p2]
+                diff_raw = (lon1 - lon2) % 360.0
+
+                for nombre_aspecto, cfg in ASPECTOS.items():
+                    angulo = cfg["angulo"]
+                    orbe = cfg["orbe"]
+                    dist = distancia_aspecto(diff_raw, angulo)
+
+                    clave = f"{p1}__{p2}__{nombre_aspecto}"
+                    estado = estados.get(clave)
+                    dentro_orbe = dist <= orbe
+
+                    # entrando al orbe
+                    if (estado is None or not estado.get("activo")) and dentro_orbe:
+                        estados[clave] = {
+                            "activo": True,
+                            "fecha_inicio": fecha_str,
+                            "fecha_exacto": fecha_str,
+                            "dist_min": dist,
+                            "aspecto": nombre_aspecto,
+                            "planeta1": p1,
+                            "planeta2": p2
+                        }
+
+                    # ya activo
+                    elif estado is not None and estado.get("activo"):
+                        if dentro_orbe:
+                            # actualizar momento más exacto
+                            if dist < estado.get("dist_min", 9999):
+                                estado["dist_min"] = dist
+                                estado["fecha_exacto"] = fecha_str
+                                estados[clave] = estado
+                        else:
+                            # salir del orbe → generamos evento
+                            etiqueta = ASPECTOS_LABEL.get(estado["aspecto"], estado["aspecto"])
+                            descripcion = f"{estado['planeta1']} {etiqueta} {estado['planeta2']}"
+
+                            evento = {
+                                "tipo": "aspecto_transito",
+                                "planeta1": estado["planeta1"],
+                                "planeta2": estado["planeta2"],
+                                "aspecto": estado["aspecto"],
+                                "angulo": ASPECTOS[estado["aspecto"]]["angulo"],
+                                "orbe_max": ASPECTOS[estado["aspecto"]]["orbe"],
+                                "fecha_inicio": estado["fecha_inicio"],
+                                "fecha_exacto": estado.get("fecha_exacto", estado["fecha_inicio"]),
+                                "fecha_fin": fecha_str,
+                                "descripcion": descripcion
+                            }
+
+                            planet_events[estado["planeta1"]]["eventos"].append(evento)
+                            planet_events[estado["planeta2"]]["eventos"].append(evento)
+
+                            estado["activo"] = False
+                            estados[clave] = estado
+
+        fecha_actual += delta
+
+    # cerrar ventanas activas al final del período
+    for clave, estado in estados.items():
+        if estado.get("activo"):
+            etiqueta = ASPECTOS_LABEL.get(estado["aspecto"], estado["aspecto"])
+            descripcion = f"{estado['planeta1']} {etiqueta} {estado['planeta2']}"
+
+            evento = {
+                "tipo": "aspecto_transito",
+                "planeta1": estado["planeta1"],
+                "planeta2": estado["planeta2"],
+                "aspecto": estado["aspecto"],
+                "angulo": ASPECTOS[estado["aspecto"]]["angulo"],
+                "orbe_max": ASPECTOS[estado["aspecto"]]["orbe"],
+                "fecha_inicio": estado["fecha_inicio"],
+                "fecha_exacto": estado.get("fecha_exacto", estado["fecha_inicio"]),
+                "fecha_fin": fecha_final,
+                "descripcion": descripcion
+            }
+
+            planet_events[estado["planeta1"]]["eventos"].append(evento)
+            planet_events[estado["planeta2"]]["eventos"].append(evento)
+
+    # ordenar eventos por fecha dentro de cada planeta
+    def fecha_evento(ev):
+        for campo in ["fecha", "fecha_inicio", "fecha_exacto"]:
+            if campo in ev and ev[campo]:
+                try:
+                    return datetime.strptime(ev[campo], "%Y-%m-%d")
+                except Exception:
+                    continue
+        return f_inicio
+
+    for pdata in planet_events.values():
+        pdata["eventos"] = sorted(pdata["eventos"], key=fecha_evento)
+
+    # devolver lista (misma estructura que /calcular-transitos)
+    return list(planet_events.values())
 
 
 @app.post("/calcular-transitos")
@@ -857,3 +1042,40 @@ def root():
             "calcular_transitos": "/calcular-transitos [POST]"
         }
     }
+    
+@app.post("/calcular-transitos-cielo")
+def api_calcular_transitos_cielo(req: RequestTransitosCielo):
+    """
+    Endpoint para calcular aspectos entre planetas en tránsito (cielo vs cielo),
+    sin usar la carta natal.
+    """
+    print(f"\n{'=' * 50}")
+    print(f"🌌 Calculando tránsitos vs tránsitos (clima del cielo):")
+    print(f"   Período: {req.fecha_inicio} a {req.fecha_final}")
+    print(f"   Incluir Luna: {req.incluir_luna}")
+    print(f"{'=' * 50}")
+
+    try:
+        transitos_cielo = calcular_aspectos_transito_vs_transito(
+            req.fecha_inicio,
+            req.fecha_final,
+            incluir_luna=req.incluir_luna
+        )
+
+        print("✅ Tránsitos vs tránsitos calculados correctamente")
+        print(f"{'=' * 50}\n")
+
+        return {
+            "periodo": {
+                "inicio": req.fecha_inicio,
+                "fin": req.fecha_final
+            },
+            "config": {
+                "incluir_luna": req.incluir_luna
+            },
+            "transitos": transitos_cielo
+        }
+    except Exception as e:
+        print(f"❌ ERROR en /calcular-transitos-cielo: {str(e)}")
+        print(f"{'=' * 50}\n")
+        raise HTTPException(status_code=500, detail=str(e))
