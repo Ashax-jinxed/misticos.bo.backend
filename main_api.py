@@ -733,3 +733,127 @@ def calcular_transitos_planeta(
         "posicion_final": posicion_final,
         "eventos": eventos_ordenados
     }
+
+
+@app.post("/calcular-transitos")
+def api_calcular_transitos(req: RequestTransitos):
+    print(f"\n{'=' * 50}")
+    print(f"🔮 Calculando tránsitos:")
+    print(f"   Período: {req.fecha_inicio} a {req.fecha_final}")
+    print(f"   Natal: {req.año_natal}-{req.mes_natal}-{req.dia_natal} {req.hora_natal}:{req.minuto_natal}")
+    print(f"   Ubicación: Lat {req.latitud_natal}, Lon {req.longitud_natal}")
+    print(f"   Sistema: {req.sistema}")
+    print(f"{'=' * 50}")
+    
+    try:
+        # Calculamos UNA sola vez las posiciones natales relevantes para aspectos
+        posiciones_natales = construir_posiciones_natales(
+            req.año_natal,
+            req.mes_natal,
+            req.dia_natal,
+            req.hora_natal,
+            req.minuto_natal,
+            req.latitud_natal,
+            req.longitud_natal,
+            req.zona_horaria_natal,
+            sistema_casas=req.sistema
+        )
+
+        planetas = {
+            'SOL': swe.SUN,
+            'LUNA': swe.MOON,
+            'MERCURIO': swe.MERCURY,
+            'VENUS': swe.VENUS,
+            'MARTE': swe.MARS,
+            'JUPITER': swe.JUPITER,
+            'SATURNO': swe.SATURN,
+            'URANO': swe.URANUS,
+            'NEPTUNO': swe.NEPTUNE,
+            'PLUTON': swe.PLUTO,
+            'NODO_NORTE': swe.TRUE_NODE,
+            'LILITH': swe.MEAN_APOG,
+            'QUIRON': swe.CHIRON
+        }
+        
+        resultados = []
+        
+        for nombre, num in planetas.items():
+            print(f"📍 Calculando {nombre}...")
+            resultado = calcular_transitos_planeta(
+                num, nombre,
+                req.fecha_inicio, req.fecha_final,
+                req.año_natal, req.mes_natal, req.dia_natal,
+                req.hora_natal, req.minuto_natal,
+                req.latitud_natal, req.longitud_natal,
+                req.zona_horaria_natal,
+                sistema_casas=req.sistema,
+                posiciones_natales=posiciones_natales
+            )
+            resultados.append(resultado)
+        
+        print("✅ Tránsitos calculados exitosamente")
+        print(f"{'=' * 50}\n")
+        
+        return {
+            "periodo": {
+                "inicio": req.fecha_inicio,
+                "fin": req.fecha_final
+            },
+            "natal": {
+                "fecha": f"{req.año_natal}-{req.mes_natal}-{req.dia_natal}",
+                "hora": f"{req.hora_natal}:{req.minuto_natal}",
+                "ubicacion": {"lat": req.latitud_natal, "lon": req.longitud_natal}
+            },
+            "transitos": resultados
+        }
+        
+    except Exception as e:
+        print(f"❌ ERROR: {str(e)}")
+        print(f"{'=' * 50}\n")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/calcular-carta")
+def api_calcular_carta(req: RequestCarta):
+    print(f"\n{'=' * 50}")
+    print(f"📥 Nueva petición recibida:")
+    print(f"   Fecha: {req.año}-{req.mes}-{req.dia} {req.hora}:{req.minuto}")
+    print(f"   Ubicación: Lat {req.latitud}, Lon {req.longitud}")
+    print(f"   Zona horaria: UTC{req.zona_horaria:+d}")
+    print(f"   Sistema: {req.sistema}")
+    print(f"{'=' * 50}")
+
+    try:
+        print("🔄 Iniciando cálculo de carta natal...")
+        resultado = calcular_carta_natal(
+            req.año, req.mes, req.dia, req.hora, req.minuto,
+            req.latitud, req.longitud, req.zona_horaria, sistema_casas=req.sistema
+        )
+        print("✅ Carta natal calculada exitosamente")
+        print(f"{'=' * 50}\n")
+        return resultado
+    except Exception as e:
+        print(f"❌ ERROR: {str(e)}")
+        print(f"{'=' * 50}\n")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "ephe_path": EPHE_PATH,
+        "ephe_exists": os.path.exists(EPHE_PATH)
+    }
+
+
+@app.get("/")
+def root():
+    return {
+        "message": "API Carta Natal - Render",
+        "endpoints": {
+            "health": "/health",
+            "calcular_carta": "/calcular-carta [POST]",
+            "calcular_transitos": "/calcular-transitos [POST]"
+        }
+    }
