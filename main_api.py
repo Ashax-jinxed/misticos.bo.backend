@@ -41,6 +41,16 @@ ASPECTOS = {
     "trigono": {"angulo": 120, "orbe": 5},
     "oposicion": {"angulo": 180, "orbe": 6},
 }
+# Orbes más cerrados para evitar spam
+
+ASPECTOS_T = {
+    "conjuncion": {"angulo": 0, "orbe": 1},
+    "sextil": {"angulo": 60, "orbe": 0.8},
+    "cuadratura": {"angulo": 90, "orbe": 1},
+    "trigono": {"angulo": 120, "orbe": 1},
+    "oposicion": {"angulo": 180, "orbe": 1},
+}
+
 
 CUERPOS_NATALES_RELEVANTES = {
     "SOL","LUNA","MERCURIO","VENUS","MARTE",
@@ -515,6 +525,22 @@ def api_calcular_transitos(req: RequestTransitos):
                                      req.hora_natal, req.minuto_natal,
                                      req.latitud_natal, req.longitud_natal,
                                      req.zona_horaria_natal, sistema=req.sistema)
+        posiciones_por_dia = []
+        fecha = datetime.strptime(req.fecha_inicio, "%Y-%m-%d")
+        fin = datetime.strptime(req.fecha_final, "%Y-%m-%d")
+
+        while fecha <= fin:
+            jd = swe.julday(fecha.year, fecha.month, fecha.day, 12.0)
+            posiciones_dia = {"fecha": fecha.strftime("%Y-%m-%d")}
+
+            for nom, num in planetas.items():
+                pos = swe.calc_ut(jd, num)[0][0] % 360
+                posiciones_dia[nom] = pos
+
+            posiciones_por_dia.append(posiciones_dia)
+            fecha += timedelta(days=1)
+
+        eventos_cielo = calcular_aspectos_transito_transito(posiciones_por_dia)
 
         return {
             "periodo": {"inicio": req.fecha_inicio, "fin": req.fecha_final},
@@ -524,9 +550,9 @@ def api_calcular_transitos(req: RequestTransitos):
                 "ubicacion": {"lat": req.latitud_natal, "lon": req.longitud_natal}
             },
             "transitos": resultados,
-            "eclipses": eclipses
+            "eclipses": eclipses,
+            "aspectos_transito_transito": eventos_cielo
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -542,3 +568,45 @@ def api_calcular_carta(req: RequestTransitos):
 @app.get("/health")
 def health():
     return {"status":"ok","ephe_path":EPHE_PATH,"ephe_exists":os.path.exists(EPHE_PATH)}
+
+def calcular_aspectos_transito_transito(posiciones_por_dia):
+    eventos = []
+    vistos = set()
+
+    planetas = [p for p in posiciones_por_dia[0].keys() if p != "fecha"]
+
+    for info in posiciones_por_dia:
+        fecha = info["fecha"]
+
+        for i in range(len(planetas)):
+            for j in range(i+1, len(planetas)):
+                p1 = planetas[i]
+                p2 = planetas[j]
+
+                lon1 = info[p1]
+                lon2 = info[p2]
+
+                diff = abs((lon1 - lon2) % 360)
+
+                for asp, data in ASPECTOS_T.items():
+                    angulo = data["angulo"]
+                    orbe = data["orbe"]
+
+                    distancia = min(abs(diff - angulo), abs(360 - abs(diff - angulo)))
+
+                    if distancia <= orbe:
+                        clave = f"{fecha}_{p1}_{p2}_{asp}"
+                        if clave in vistos:
+                            continue
+                        vistos.add(clave)
+
+                        eventos.append({
+                            "tipo": "aspecto_transito",
+                            "planeta1": p1,
+                            "planeta2": p2,
+                            "aspecto": asp,
+                            "fecha": fecha,
+                            "descripcion": f"{p1} {asp} a {p2} (tránsito)",
+                        })
+
+    return eventos
