@@ -8,7 +8,8 @@ import os
 import swisseph as swe
 
 # Importa módulos locales
-from carta_natal import calcular_carta_natal
+from carta_natal import calcular_carta_natal_sola as calcular_carta_natal
+
 from transitos import calcular_transitos_completo
 
 # EPHE path
