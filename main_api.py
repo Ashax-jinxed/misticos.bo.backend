@@ -137,3 +137,21 @@ def health():
 @app.get("/")
 def root():
     return {"status": "ok", "message": "API operativa"}
+# Agrega este endpoint después de @app.post("/calcular-carta")
+# y antes de @app.post("/calcular-transitos")
+
+@app.post("/carta-natal-sola")
+def api_carta_natal_sola(req: RequestCarta):
+    """
+    Endpoint alternativo para calcular carta natal.
+    Mantiene compatibilidad con clientes que usen esta ruta.
+    """
+    try:
+        resultado = calcular_carta_natal(
+            req.año, req.mes, req.dia, req.hora, req.minuto,
+            req.latitud, req.longitud, req.zona_horaria,
+            sistema_casas=req.sistema
+        )
+        return resultado
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
