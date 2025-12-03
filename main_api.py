@@ -481,14 +481,89 @@ def calcular_transitos_planeta(
     }
     return planet_events
 
+def calcular_aspectos_transito_transito(posiciones_por_dia):
+    """
+    Calcula aspectos entre planetas en tránsito (transito vs transito)
+    usando orbes cerrados para evitar duplicados y ruido.
+    """
+    ASPECTOS_T = {
+        "conjuncion": {"angulo": 0, "orbe": 1},
+        "sextil": {"angulo": 60, "orbe": 0.8},
+        "cuadratura": {"angulo": 90, "orbe": 1},
+        "trigono": {"angulo": 120, "orbe": 1},
+        "oposicion": {"angulo": 180, "orbe": 1},
+    }
+
+    eventos = []
+    vistos = set()
+
+    # identificar planetas, excluyendo la fecha
+    planetas = [p for p in posiciones_por_dia[0].keys() if p != "fecha"]
+
+    for info in posiciones_por_dia:
+        fecha = info["fecha"]
+
+        for i in range(len(planetas)):
+            for j in range(i + 1, len(planetas)):
+                p1 = planetas[i]
+                p2 = planetas[j]
+
+                lon1 = info[p1]
+                lon2 = info[p2]
+
+                # diferencia angular 0–360
+                diff = abs((lon1 - lon2) % 360)
+
+                for asp, data in ASPECTOS_T.items():
+                    angulo = data["angulo"]
+                    orbe = data["orbe"]
+
+                    # distancia angular mínima
+                    distancia = min(
+                        abs(diff - angulo),
+                        abs(360 - abs(diff - angulo))
+                    )
+
+                    if distancia <= orbe:
+                        clave = f"{fecha}_{p1}_{p2}_{asp}"
+                        if clave in vistos:
+                            continue
+                        vistos.add(clave)
+
+                        eventos.append({
+                            "tipo": "aspecto_transito",
+                            "planeta1": p1,
+                            "planeta2": p2,
+                            "aspecto": asp,
+                            "fecha": fecha,
+                            "descripcion": f"{p1} {asp} a {p2} (tránsito)"
+                        })
+
+    return eventos
+
+
 @app.post("/calcular-transitos")
 def api_calcular_transitos(req: RequestTransitos):
     try:
-        posiciones_natales = construir_posiciones_natales(
-            req.año_natal, req.mes_natal, req.dia_natal, req.hora_natal, req.minuto_natal,
-            req.latitud_natal, req.longitud_natal, req.zona_horaria_natal, sistema_casas=req.sistema
-        )
+        # ---------------------------
+        # 1) Construir posiciones natales (solo si modo = natal)
+        # ---------------------------
+        incluir_natal = getattr(req, "modo", "natal") == "natal"
 
+        if incluir_natal:
+            posiciones_natales = construir_posiciones_natales(
+                req.año_natal, req.mes_natal, req.dia_natal,
+                req.hora_natal, req.minuto_natal,
+                req.latitud_natal, req.longitud_natal,
+                req.zona_horaria_natal,
+                sistema_casas=req.sistema
+            )
+        else:
+            posiciones_natales = None
+
+        # ---------------------------
+        # 2) Lista de planetas
+        # ---------------------------
         planetas = {
             'SOL': swe.SUN,
             'LUNA': swe.MOON,
@@ -505,6 +580,9 @@ def api_calcular_transitos(req: RequestTransitos):
             'QUIRON': swe.CHIRON
         }
 
+        # ---------------------------
+        # 3) Calcular eventos de cada planeta (signo, casa, retro, natal)
+        # ---------------------------
         resultados = []
         for nombre, num in planetas.items():
             resultado = calcular_transitos_planeta(
@@ -515,98 +593,64 @@ def api_calcular_transitos(req: RequestTransitos):
                 req.latitud_natal, req.longitud_natal,
                 req.zona_horaria_natal,
                 sistema_casas=req.sistema,
-                posiciones_natales=posiciones_natales
+                posiciones_natales=posiciones_natales   # ← solo si modo natal
             )
             resultados.append(resultado)
 
-        # detectar eclipses en el período (simple)
-        eclipses = detectar_eclipses(req.fecha_inicio, req.fecha_final,
-                                     req.año_natal, req.mes_natal, req.dia_natal,
-                                     req.hora_natal, req.minuto_natal,
-                                     req.latitud_natal, req.longitud_natal,
-                                     req.zona_horaria_natal, sistema=req.sistema)
-        posiciones_por_dia = []
-        fecha = datetime.strptime(req.fecha_inicio, "%Y-%m-%d")
-        fin = datetime.strptime(req.fecha_final, "%Y-%m-%d")
+        # ---------------------------
+        # 4) Eclipses (siempre)
+        # ---------------------------
+        eclipses = detectar_eclipses(
+            req.fecha_inicio, req.fecha_final,
+            req.año_natal, req.mes_natal, req.dia_natal,
+            req.hora_natal, req.minuto_natal,
+            req.latitud_natal, req.longitud_natal,
+            req.zona_horaria_natal, sistema=req.sistema
+        )
 
-        while fecha <= fin:
-            jd = swe.julday(fecha.year, fecha.month, fecha.day, 12.0)
-            posiciones_dia = {"fecha": fecha.strftime("%Y-%m-%d")}
+        # ---------------------------
+        # 5) Aspectos tránsito ↔ tránsito (solo si modo = cielo)
+        # ---------------------------
+        eventos_cielo = []
 
-            for nom, num in planetas.items():
-                pos = swe.calc_ut(jd, num)[0][0] % 360
-                posiciones_dia[nom] = pos
+        if not incluir_natal:
+            posiciones_por_dia = []
+            fecha = datetime.strptime(req.fecha_inicio, "%Y-%m-%d")
+            fin = datetime.strptime(req.fecha_final, "%Y-%m-%d")
 
-            posiciones_por_dia.append(posiciones_dia)
-            fecha += timedelta(days=1)
+            while fecha <= fin:
+                jd = swe.julday(fecha.year, fecha.month, fecha.day, 12.0)
+                pos_dia = {"fecha": fecha.strftime("%Y-%m-%d")}
 
-        eventos_cielo = calcular_aspectos_transito_transito(posiciones_por_dia)
+                for nom, num in planetas.items():
+                    pos_dia[nom] = swe.calc_ut(jd, num)[0][0] % 360
 
+                posiciones_por_dia.append(pos_dia)
+                fecha += timedelta(days=1)
+
+            eventos_cielo = calcular_aspectos_transito_transito(posiciones_por_dia)
+
+        # ---------------------------
+        # 6) Respuesta final
+        # ---------------------------
         return {
-            "periodo": {"inicio": req.fecha_inicio, "fin": req.fecha_final},
+            "periodo": {
+                "inicio": req.fecha_inicio,
+                "fin": req.fecha_final
+            },
+            "modo": "natal" if incluir_natal else "cielo",
             "natal": {
                 "fecha": f"{req.año_natal}-{req.mes_natal}-{req.dia_natal}",
                 "hora": f"{req.hora_natal}:{req.minuto_natal}",
-                "ubicacion": {"lat": req.latitud_natal, "lon": req.longitud_natal}
-            },
+                "ubicacion": {
+                    "lat": req.latitud_natal,
+                    "lon": req.longitud_natal
+                }
+            } if incluir_natal else None,
             "transitos": resultados,
             "eclipses": eclipses,
             "aspectos_transito_transito": eventos_cielo
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/calcular-carta")
-def api_calcular_carta(req: RequestTransitos):
-    try:
-        res = calcular_carta_natal(req.año_natal, req.mes_natal, req.dia_natal, req.hora_natal, req.minuto_natal,
-                                   req.latitud_natal, req.longitud_natal, req.zona_horaria_natal, sistema_casas=req.sistema)
-        return res
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/health")
-def health():
-    return {"status":"ok","ephe_path":EPHE_PATH,"ephe_exists":os.path.exists(EPHE_PATH)}
-
-def calcular_aspectos_transito_transito(posiciones_por_dia):
-    eventos = []
-    vistos = set()
-
-    planetas = [p for p in posiciones_por_dia[0].keys() if p != "fecha"]
-
-    for info in posiciones_por_dia:
-        fecha = info["fecha"]
-
-        for i in range(len(planetas)):
-            for j in range(i+1, len(planetas)):
-                p1 = planetas[i]
-                p2 = planetas[j]
-
-                lon1 = info[p1]
-                lon2 = info[p2]
-
-                diff = abs((lon1 - lon2) % 360)
-
-                for asp, data in ASPECTOS_T.items():
-                    angulo = data["angulo"]
-                    orbe = data["orbe"]
-
-                    distancia = min(abs(diff - angulo), abs(360 - abs(diff - angulo)))
-
-                    if distancia <= orbe:
-                        clave = f"{fecha}_{p1}_{p2}_{asp}"
-                        if clave in vistos:
-                            continue
-                        vistos.add(clave)
-
-                        eventos.append({
-                            "tipo": "aspecto_transito",
-                            "planeta1": p1,
-                            "planeta2": p2,
-                            "aspecto": asp,
-                            "fecha": fecha,
-                            "descripcion": f"{p1} {asp} a {p2} (tránsito)",
-                        })
-
-    return eventos
