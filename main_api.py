@@ -7,6 +7,7 @@ import swisseph as swe
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
+from carta_natal import calcular_carta_natal
 
 # Ruta de efemérides
 BASE_DIR = Path(__file__).resolve().parent
