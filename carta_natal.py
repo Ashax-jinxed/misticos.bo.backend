@@ -17,7 +17,7 @@ def obtener_signo_grado(longitud_ec):
     return signos[signo_index], grado
 
 
-def calcular_carta_natal(año, mes, dia, hora, minuto, latitud, longitud, zona_horaria, sistema_casas='P'):
+def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, zona_horaria, sistema_casas='P'):
     swe.set_ephe_path(EPHE_PATH)
 
     # Ajustar hora local a UTC

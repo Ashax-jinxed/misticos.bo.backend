@@ -7,7 +7,7 @@ import swisseph as swe
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
-from carta_natal import calcular_carta_natal
+from carta_natal import calcular_carta_natal_sola
 
 # Ruta de efemérides
 BASE_DIR = Path(__file__).resolve().parent
@@ -655,3 +655,19 @@ def api_calcular_transitos(req: RequestTransitos):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@app.post("/carta-natal-sola")
+def api_carta_natal_sola(payload: dict):
+    try:
+        return calcular_carta_natal_sola(
+            payload["año"],
+            payload["mes"],
+            payload["dia"],
+            payload["hora"],
+            payload.get("minuto", 0),
+            float(payload["latitud"]),
+            float(payload["longitud"]),
+            int(payload["zona_horaria"]),
+            sistema_casas=payload.get("sistema_casas", "P")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
