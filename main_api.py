@@ -248,6 +248,7 @@ def detectar_eclipses(fecha_inicio: str, fecha_final: str, año_natal:int, mes_n
                     break
             eventos.append({
                 "tipo": "eclipse",
+                "origen": "transito_natal",
                 "subtipo": "solar",
                 "fecha": fecha.strftime("%Y-%m-%d"),
                 "descripcion": f"Eclipse solar (Luna nueva cerca del nodo) - Cae en {signo} · Casa {casa}",
@@ -401,6 +402,7 @@ def calcular_transitos_planeta(
             # no implementamos binary search full para no alargar; guardamos fecha_actual como momento
             eventos.append({
                 "tipo": "cambio_signo",
+                "origen": "evento_transito",
                 "planeta": nombre_planeta,
                 "fecha": fecha_actual.strftime("%Y-%m-%d"),
                 "descripcion": f"{nombre_planeta} ingresa a {signo_actual}",
@@ -413,6 +415,7 @@ def calcular_transitos_planeta(
         if casa_anterior is not None and casa_actual != casa_anterior:
             eventos.append({
                 "tipo": "cambio_casa",
+                "origen": "transito_natal",
                 "planeta": nombre_planeta,
                 "fecha": fecha_actual.strftime("%Y-%m-%d"),
                 "descripcion": f"{nombre_planeta} entra en casa {casa_actual}",
@@ -425,6 +428,7 @@ def calcular_transitos_planeta(
         if retrogrado_anterior is not None and retro_actual != retrogrado_anterior:
             eventos.append({
                 "tipo": "retrogrado_inicio" if retro_actual else "retrogrado_fin",
+                "origen": "transito_natal",
                 "planeta": nombre_planeta,
                 "fecha": fecha_actual.strftime("%Y-%m-%d"),
                 "descripcion": f"{nombre_planeta} {'comienza' if retro_actual else 'termina'} movimiento retrógrado",
@@ -436,7 +440,7 @@ def calcular_transitos_planeta(
         # aspectos contra posiciones natales (si posiciones_natales provistas)
         if posiciones_natales:
             for natal_name, natal_pos in posiciones_natales.items():
-                if natal_name not in posiciones_natales: continue
+                diff = (longitud - natal_pos["longitud"]) % 360.0
                 diff = (longitud - natal_pos["longitud"]) % 360.0
                 for asp_name, asp_info in ASPECTOS.items():
                     ang = asp_info["angulo"]
@@ -446,6 +450,7 @@ def calcular_transitos_planeta(
                         # intento de momento exacto: simple búsqueda local entre jd-1 y jd+1
                         evento = {
                             "tipo": "aspecto",
+                            "origen": "transito_natal",
                             "planeta": nombre_planeta,
                             "planeta_natal": natal_name,
                             "aspecto": asp_name,
@@ -533,12 +538,16 @@ def calcular_aspectos_transito_transito(posiciones_por_dia):
 
                         eventos.append({
                             "tipo": "aspecto_transito",
+                            "origen": "transito_transito",   # ← ESTO es lo que lo distingue
                             "planeta1": p1,
                             "planeta2": p2,
                             "aspecto": asp,
+                            "angulo": angulo,
+                            "orbe": distancia,
                             "fecha": fecha,
-                            "descripcion": f"{p1} {asp} a {p2} (tránsito)"
+                            "descripcion": f"{p1} {asp} a {p2} (tránsito–tránsito)"
                         })
+
 
     return eventos
 
