@@ -9,7 +9,6 @@ import swisseph as swe
 
 # Importa módulos locales
 from carta_natal import calcular_carta_natal_sola as calcular_carta_natal
-
 from transitos import calcular_transitos_completo
 
 # EPHE path
@@ -71,12 +70,17 @@ def api_calcular_carta(req: RequestCarta):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------------------
-# ENDPOINT: calcular-transitos (combina natal + cielo)
+# ENDPOINT: calcular-transitos (combina natal + cielo + eclipses)
 # ---------------------------
 @app.post("/calcular-transitos")
 def api_calcular_transitos(req: RequestTransitos):
     try:
-        # 1) calcular carta natal (obligatorio para tránsitos natales)
+        print(f"\n{'='*60}")
+        print(f"📥 REQUEST: {req.fecha_inicio} → {req.fecha_final}")
+        print(f"   Modo: {'NATAL' if not req.incluir_cielo else 'CIELO'}")
+        print(f"{'='*60}\n")
+        
+        # 1) calcular carta natal
         carta = calcular_carta_natal(
             req.año_natal, req.mes_natal, req.dia_natal, req.hora_natal, req.minuto_natal,
             req.latitud_natal, req.longitud_natal, req.zona_horaria_natal,
@@ -90,19 +94,19 @@ def api_calcular_transitos(req: RequestTransitos):
             for nombre, info in carta["carta"].items():
                 if isinstance(info, dict) and "longitud" in info:
                     posiciones_natales[nombre] = float(info["longitud"])
+            print(f"✅ Posiciones natales: {len(posiciones_natales)}")
+                    
         if isinstance(carta, dict) and "cuspides" in carta:
-            # cuspides como signos actuales; transitos.py necesita grados eclípticos (si los tenés en carta_natal, pásalos)
-            # Aquí asumimos que carta_natal devolvió 'cuspides' como dict idx->signo; si tienes cúspides grados,
-            # reemplaza esta línea por la lista de 12 grados.
             try:
-                # If carta_natal provided numeric cuspides, use them
                 cuspides_raw = carta.get("cuspides_raw") or carta.get("cuspides_degrees")
                 if isinstance(cuspides_raw, list) and len(cuspides_raw) == 12:
                     cuspides = cuspides_raw
+                    print(f"✅ Cúspides: {len(cuspides)}")
             except Exception:
                 cuspides = None
 
-        # 3) llamar motor de tránsitos (devuelve ambos conjuntos según parámetros)
+        # 3) calcular tránsitos
+        print(f"\n🔄 Calculando tránsitos...")
         resultado = calcular_transitos_completo(
             req.fecha_inicio,
             req.fecha_final,
@@ -112,19 +116,43 @@ def api_calcular_transitos(req: RequestTransitos):
             incluir_cielo=req.incluir_cielo
         )
 
-        # 4) envolver con metadatos básicos
-        return {
+        # 4) Extraer componentes
+        transitos_natal = resultado.get("transitos_natal", [])
+        transitos_cielo = resultado.get("transitos_cielo", [])
+        eclipses = resultado.get("eclipses", [])
+        
+        # Debug logs
+        print(f"\n📊 RESULTADOS:")
+        print(f"   🌍 Tránsitos natales: {len(transitos_natal)} planetas")
+        for t in transitos_natal:
+            print(f"      - {t.get('planeta')}: {len(t.get('eventos', []))} eventos")
+        print(f"   🌌 Tránsitos cielo: {len(transitos_cielo)} planetas")
+        for t in transitos_cielo:
+            print(f"      - {t.get('planeta')}: {len(t.get('eventos', []))} eventos")
+        print(f"   🌑 Eclipses: {len(eclipses)}")
+        for e in eclipses:
+            print(f"      - {e.get('fecha')} → {e.get('descripcion')}")
+
+        # 5) respuesta
+        respuesta = {
             "periodo": {"inicio": req.fecha_inicio, "fin": req.fecha_final},
             "natal": {
-                "fecha": f"{req.año_natal}-{req.mes_natal}-{req.dia_natal}",
-                "hora": f"{req.hora_natal}:{req.minuto_natal}",
+                "fecha": f"{req.año_natal}-{req.mes_natal:02d}-{req.dia_natal:02d}",
+                "hora": f"{req.hora_natal:02d}:{req.minuto_natal:02d}",
                 "ubicacion": {"lat": req.latitud_natal, "lon": req.longitud_natal}
             },
-            "transitos_natal": resultado.get("transitos_natal", []),
-            "transitos_cielo": resultado.get("transitos_cielo", [])
+            "transitos_natal": transitos_natal,
+            "transitos_cielo": transitos_cielo,
+            "eclipses": eclipses
         }
+        
+        print(f"\n📤 ENVIANDO con {len(eclipses)} eclipses\n")
+        return respuesta
 
     except Exception as e:
+        print(f"\n❌ ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------------------
@@ -137,8 +165,6 @@ def health():
 @app.get("/")
 def root():
     return {"status": "ok", "message": "API operativa"}
-# Agrega este endpoint después de @app.post("/calcular-carta")
-# y antes de @app.post("/calcular-transitos")
 
 @app.post("/carta-natal-sola")
 def api_carta_natal_sola(req: RequestCarta):
