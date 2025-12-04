@@ -453,104 +453,74 @@ def calcular_transitos_completo(
 # Agregar esta función a transitos.py
 
 def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any]]:
-    """
-    Calcula eclipses solares y lunares en el período dado.
-    """
     inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     final_day = datetime.strptime(fecha_final, DT_DAY_FMT)
-    
+
+    jd_inicio = swe.julday(inicio_day.year, inicio_day.month, inicio_day.day, 0)
+    jd_final  = swe.julday(final_day.year, final_day.month, final_day.day, 23.99)
+
     eclipses = []
-    
-    # JD inicial
-    jd_inicio = swe.julday(inicio_day.year, inicio_day.month, inicio_day.day, 0.0)
-    jd_final = swe.julday(final_day.year, final_day.month, final_day.day, 23.99)
-    
-    # Buscar eclipses solares
-    jd_actual = jd_inicio
-    while jd_actual < jd_final:
-        try:
-            # Próximo eclipse solar
-            res = swe.sol_eclipse_when_glob(jd_actual, swe.FLG_SWIEPH)
-            jd_eclipse = res[1][0]  # JD del máximo del eclipse
-            
-            if jd_eclipse > jd_final:
-                break
-            
-            # Convertir JD a fecha
-            fecha_eclipse = swe.revjul(jd_eclipse)
-            fecha_str = f"{int(fecha_eclipse[0])}-{int(fecha_eclipse[1]):02d}-{int(fecha_eclipse[2]):02d}"
-            
-            # Tipo de eclipse solar
-            tipo_eclipse = "Eclipse Solar"
-            if res[0] & swe.SE_ECL_TOTAL:
-                tipo_eclipse = "Eclipse Solar Total"
-            elif res[0] & swe.SE_ECL_ANNULAR:
-                tipo_eclipse = "Eclipse Solar Anular"
-            elif res[0] & swe.SE_ECL_PARTIAL:
-                tipo_eclipse = "Eclipse Solar Parcial"
-            
-            # Calcular posición del eclipse (en qué signo ocurre)
+
+    # Buscar eclipses solares correctamente
+    jd = jd_inicio - 40   # ir un poco antes para buscar correctamente
+    while True:
+        res = swe.sol_eclipse_when_glob(jd, swe.FLG_SWIEPH)
+        jd_eclipse = res[1][0]
+
+        if jd_eclipse > jd_final:
+            break
+
+        if jd_eclipse >= jd_inicio:
+            y, m, d = swe.revjul(jd_eclipse)[:3]
             long_sol = _calc_long(jd_eclipse, swe.SUN)
-            signo_idx = int(long_sol // 30) % 12
-            signo = SIGNOS_NOMBRES[signo_idx]
-            
+            signo = SIGNOS_NOMBRES[int(long_sol // 30)]
+
+            tipo = "Eclipse Solar"
+            if res[0] & swe.SE_ECL_TOTAL: tipo = "Eclipse Solar Total"
+            elif res[0] & swe.SE_ECL_ANNULAR: tipo = "Eclipse Solar Anular"
+            elif res[0] & swe.SE_ECL_PARTIAL: tipo = "Eclipse Solar Parcial"
+
             eclipses.append({
                 "tipo": "eclipse",
                 "subtipo": "solar",
-                "descripcion": f"{tipo_eclipse} en {signo}",
-                "fecha": fecha_str,
+                "descripcion": f"{tipo} en {signo}",
+                "fecha": f"{y}-{m:02d}-{d:02d}",
                 "signo": signo,
-                "grado": float(long_sol % 30),
+                "grado": long_sol % 30,
                 "planeta": "SOL"
             })
-            
-            jd_actual = jd_eclipse + 1  # Avanzar al menos 1 día
-            
-        except Exception as e:
-            print(f"Error buscando eclipse solar: {e}")
+
+        jd = jd_eclipse + 170  # avanzar un ciclo
+
+    # Buscar eclipses lunares correctamente
+    jd = jd_inicio - 40
+    while True:
+        res = swe.lun_eclipse_when(jd, swe.FLG_SWIEPH)
+        jd_eclipse = res[1][0]
+
+        if jd_eclipse > jd_final:
             break
-    
-    # Buscar eclipses lunares
-    jd_actual = jd_inicio
-    while jd_actual < jd_final:
-        try:
-            # Próximo eclipse lunar
-            res = swe.lun_eclipse_when(jd_actual, swe.FLG_SWIEPH)
-            jd_eclipse = res[1][0]
-            
-            if jd_eclipse > jd_final:
-                break
-            
-            fecha_eclipse = swe.revjul(jd_eclipse)
-            fecha_str = f"{int(fecha_eclipse[0])}-{int(fecha_eclipse[1]):02d}-{int(fecha_eclipse[2]):02d}"
-            
-            # Tipo de eclipse lunar
-            tipo_eclipse = "Eclipse Lunar"
-            if res[0] & swe.SE_ECL_TOTAL:
-                tipo_eclipse = "Eclipse Lunar Total"
-            elif res[0] & swe.SE_ECL_PARTIAL:
-                tipo_eclipse = "Eclipse Lunar Parcial"
-            elif res[0] & swe.SE_ECL_PENUMBRAL:
-                tipo_eclipse = "Eclipse Lunar Penumbral"
-            
+
+        if jd_eclipse >= jd_inicio:
+            y, m, d = swe.revjul(jd_eclipse)[:3]
             long_luna = _calc_long(jd_eclipse, swe.MOON)
-            signo_idx = int(long_luna // 30) % 12
-            signo = SIGNOS_NOMBRES[signo_idx]
-            
+            signo = SIGNOS_NOMBRES[int(long_luna // 30)]
+
+            tipo = "Eclipse Lunar"
+            if res[0] & swe.SE_ECL_TOTAL: tipo = "Eclipse Lunar Total"
+            elif res[0] & swe.SE_ECL_PARTIAL: tipo = "Eclipse Lunar Parcial"
+            elif res[0] & swe.SE_ECL_PENUMBRAL: tipo = "Eclipse Lunar Penumbral"
+
             eclipses.append({
                 "tipo": "eclipse",
                 "subtipo": "lunar",
-                "descripcion": f"{tipo_eclipse} en {signo}",
-                "fecha": fecha_str,
+                "descripcion": f"{tipo} en {signo}",
+                "fecha": f"{y}-{m:02d}-{d:02d}",
                 "signo": signo,
-                "grado": float(long_luna % 30),
+                "grado": long_luna % 30,
                 "planeta": "LUNA"
             })
-            
-            jd_actual = jd_eclipse + 1
-            
-        except Exception as e:
-            print(f"Error buscando eclipse lunar: {e}")
-            break
-    
+
+        jd = jd_eclipse + 170
+
     return eclipses
