@@ -13,15 +13,11 @@ from pathlib import Path
 import swisseph as swe
 import os
 
-# Ephemeris path (usa carpeta 'ephe' en el mismo directorio)
 BASE_DIR = Path(__file__).resolve().parent
 EPHE_PATH = str(BASE_DIR / "ephe")
 os.makedirs(EPHE_PATH, exist_ok=True)
 swe.set_ephe_path(EPHE_PATH)
 
-# ============================================================
-# CONFIG
-# ============================================================
 PLANETAS = {
     'SOL': swe.SUN,
     'LUNA': swe.MOON,
@@ -56,7 +52,6 @@ ASPECTOS_LABEL = {
     "oposicion": "oposición"
 }
 
-# Orbes profesionales por planeta (grados)
 ORBES_BASE = {
     "LUNA": 6.0,
     "SOL": 4.0,
@@ -73,9 +68,6 @@ ORBES_BASE = {
 DT_FMT = "%Y-%m-%d %H:%M"
 DT_DAY_FMT = "%Y-%m-%d"
 
-# ============================================================
-# UTILIDADES
-# ============================================================
 def _norm360(x: float) -> float:
     x = x % 360.0
     if x < 0:
@@ -104,9 +96,6 @@ def _fecha_str(dt: datetime) -> str:
 def _fecha_day_str(dt: datetime) -> str:
     return dt.strftime(DT_DAY_FMT)
 
-# ============================================================
-# CASAS (usar cúspides natales para "casa natal")
-# ============================================================
 def obtener_casa_desde_cuspides(long_ec: float, cuspides: List[float]) -> int:
     for i in range(12):
         a = cuspides[i]
@@ -121,9 +110,6 @@ def obtener_casa_desde_cuspides(long_ec: float, cuspides: List[float]) -> int:
             return i + 1
     return 12
 
-# ============================================================
-# TRANSITOS: CIELO vs CIELO (A1, horario)
-# ============================================================
 def calcular_transitos_cielo(fecha_inicio: str, fecha_final: str, incluir_luna: bool = True) -> List[Dict[str, Any]]:
     inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     final_day = datetime.strptime(fecha_final, DT_DAY_FMT)
@@ -133,10 +119,8 @@ def calcular_transitos_cielo(fecha_inicio: str, fecha_final: str, incluir_luna: 
     if not incluir_luna and "LUNA" in planetas:
         planetas.remove("LUNA")
 
-    # salida por planeta
     out = {p: {"planeta": p, "posicion_inicial": None, "posicion_final": None, "eventos": []} for p in planetas}
 
-    # posiciones inicial / final (12:00 UTC)
     try:
         jd_ini = swe.julday(inicio_day.year, inicio_day.month, inicio_day.day, 12.0)
         jd_fin = swe.julday(final_day.year, final_day.month, final_day.day, 12.0)
@@ -149,12 +133,13 @@ def calcular_transitos_cielo(fecha_inicio: str, fecha_final: str, incluir_luna: 
     except Exception:
         pass
 
-    ventanas = {}  # clave -> estado
-
+    ventanas = {}
     fecha = inicio_day
     last_end = final_day + timedelta(hours=23)
+
     while fecha <= last_end:
         jd = swe.julday(fecha.year, fecha.month, fecha.day, fecha.hour)
+
         longitudes = {}
         for p in planetas:
             longitudes[p] = _calc_long(jd, PLANETAS[p])
@@ -176,12 +161,20 @@ def calcular_transitos_cielo(fecha_inicio: str, fecha_final: str, incluir_luna: 
                     clave = f"{p1}__{p2}__{asp_name}"
 
                     estado = ventanas.get(clave)
+
                     if dist <= orbe and estado is None:
-                        ventanas[clave] = {"activo": True, "fecha_inicio": _fecha_str(fecha), "fecha_exacto": _fecha_str(fecha), "dist_min": dist}
+                        ventanas[clave] = {
+                            "activo": True,
+                            "fecha_inicio": _fecha_str(fecha),
+                            "fecha_exacto": _fecha_str(fecha),
+                            "dist_min": dist
+                        }
+
                     elif estado is not None and estado.get("activo"):
                         if dist < estado.get("dist_min", 9999.0):
                             estado["dist_min"] = dist
                             estado["fecha_exacto"] = _fecha_str(fecha)
+
                         if dist > orbe:
                             estado["activo"] = False
                             evento = {
@@ -199,7 +192,6 @@ def calcular_transitos_cielo(fecha_inicio: str, fecha_final: str, incluir_luna: 
                             out[p2]["eventos"].append(evento)
 
         fecha += delta
-
     # cerrar ventanas activas
     last_fin = (final_day + timedelta(hours=23)).strftime(DT_FMT)
     for clave, estado in list(ventanas.items()):
@@ -221,7 +213,6 @@ def calcular_transitos_cielo(fecha_inicio: str, fecha_final: str, incluir_luna: 
                 out[p1]["eventos"].append(evento)
                 out[p2]["eventos"].append(evento)
 
-    # ordenar y armar lista
     def _key(ev):
         for f in ("fecha_exacto", "fecha_inicio", "fecha_fin"):
             if f in ev and ev[f]:
@@ -240,7 +231,7 @@ def calcular_transitos_cielo(fecha_inicio: str, fecha_final: str, incluir_luna: 
     return resultado
 
 # ============================================================
-# TRANSITOS: TRÁNSITOS SOBRE CARTA NATAL (A1)
+# TRANSITOS SOBRE CARTA NATAL
 # ============================================================
 def calcular_transitos_natal(
     fecha_inicio: str,
@@ -249,6 +240,7 @@ def calcular_transitos_natal(
     cuspides: Optional[List[float]] = None,
     incluir_luna: bool = True
 ) -> List[Dict[str, Any]]:
+
     inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     final_day = datetime.strptime(fecha_final, DT_DAY_FMT)
     delta = timedelta(hours=1)
@@ -257,9 +249,16 @@ def calcular_transitos_natal(
     if not incluir_luna and "LUNA" in planetas:
         planetas.remove("LUNA")
 
-    out = {p: {"planeta": p, "posicion_inicial": None, "posicion_final": None, "eventos": []} for p in planetas}
+    out = {
+        p: {
+            "planeta": p,
+            "posicion_inicial": None,
+            "posicion_final": None,
+            "eventos": []
+        }
+        for p in planetas
+    }
 
-    # posiciones inicial/final (12:00 UTC)
     try:
         jd_ini = swe.julday(inicio_day.year, inicio_day.month, inicio_day.day, 12.0)
         jd_fin = swe.julday(final_day.year, final_day.month, final_day.day, 12.0)
@@ -267,8 +266,8 @@ def calcular_transitos_natal(
             n = PLANETAS[p]
             long_ini = _calc_long(jd_ini, n)
             long_fin = _calc_long(jd_fin, n)
-            out[p]["posicion_inicial"] = {"longitud": float(long_ini), "grado": float(long_ini % 30)}
-            out[p]["posicion_final"] = {"longitud": float(long_fin), "grado": float(long_fin % 30)}
+            out[p]["posicion_inicial"] = {"longitud": long_ini, "grado": long_ini % 30}
+            out[p]["posicion_final"] = {"longitud": long_fin, "grado": long_fin % 30}
     except Exception:
         pass
 
@@ -277,19 +276,22 @@ def calcular_transitos_natal(
 
     fecha = inicio_day
     last_end = final_day + timedelta(hours=23)
+
     while fecha <= last_end:
         jd = swe.julday(fecha.year, fecha.month, fecha.day, fecha.hour)
+
         for p in planetas:
             n = PLANETAS[p]
-            lon = _calc_long(jd, n)
-            if lon is None:
+            lon_now = _calc_long(jd, n)
+            if lon_now is None:
                 continue
 
-            # cambio de signo
-            signo_idx = int(lon // 30) % 12
+            signo_idx = int(lon_now // 30) % 12
             prev_signo = estado_prev[p]["signo_idx"]
+
             if prev_signo is None:
                 estado_prev[p]["signo_idx"] = signo_idx
+
             elif prev_signo != signo_idx:
                 evento = {
                     "tipo": "cambio_signo",
@@ -297,41 +299,44 @@ def calcular_transitos_natal(
                     "planeta": p,
                     "signo_anterior": prev_signo,
                     "signo_nuevo": signo_idx,
-                    "descripcion": f"{p} ingresa a {SIGNOS_NOMBRES[signo_idx]}",  # <-- CAMBIAR AQUÍ
+                    "descripcion": f"{p} ingresa a {SIGNOS_NOMBRES[signo_idx]}",
                     "fecha": _fecha_str(fecha)
                 }
                 out[p]["eventos"].append(evento)
                 estado_prev[p]["signo_idx"] = signo_idx
 
-            # cambio de casa (si cuspides dadas)
-            if cuspides is not None and len(cuspides) == 12:
-                casa_actual = obtener_casa_desde_cuspides(lon, cuspides)
+            if cuspides and len(cuspides) == 12:
+                casa_now = obtener_casa_desde_cuspides(lon_now, cuspides)
                 prev_casa = estado_prev[p]["casa"]
+
                 if prev_casa is None:
-                    estado_prev[p]["casa"] = casa_actual
-                elif prev_casa != casa_actual:
+                    estado_prev[p]["casa"] = casa_now
+
+                elif prev_casa != casa_now:
                     evento = {
                         "tipo": "cambio_casa",
                         "origen": "evento_transito",
                         "planeta": p,
                         "casa_anterior": prev_casa,
-                        "casa_nueva": casa_actual,
-                        "descripcion": f"{p} ingresa a casa {casa_actual}",
+                        "casa_nueva": casa_now,
+                        "descripcion": f"{p} ingresa a casa {casa_now}",
                         "fecha": _fecha_str(fecha)
                     }
                     out[p]["eventos"].append(evento)
-                    estado_prev[p]["casa"] = casa_actual
+                    estado_prev[p]["casa"] = casa_now
 
-            # retrogradación (velocidad)
             try:
                 vel = float(swe.calc_ut(jd, n, swe.FLG_SWIEPH | swe.FLG_SPEED)[0][3])
             except Exception:
                 vel = None
+
             prev_retro = estado_prev[p]["retro"]
+
             if prev_retro is None and vel is not None:
                 estado_prev[p]["retro"] = (vel < 0)
+
             elif vel is not None:
-                is_retro = (vel < 0)
+                is_retro = vel < 0
                 if prev_retro != is_retro:
                     estado_prev[p]["retro"] = is_retro
                     evento = {
@@ -343,22 +348,30 @@ def calcular_transitos_natal(
                     }
                     out[p]["eventos"].append(evento)
 
-            # aspectos contra natales
             if posiciones_natales:
                 for natal_name, natal_long in posiciones_natales.items():
-                    # permitir retorno si hace falta; no comparar mismo planeta si no se quiere
                     for asp_name, ang in ASPECTOS.items():
-                        orbe = min(ORBES_BASE.get(p, 2.0),
-                                   ORBES_BASE.get(natal_name, ORBES_BASE.get(p, 2.0)))
-                        dist = distancia_aspecto(lon, natal_long, ang)
+                        orbe = min(
+                            ORBES_BASE.get(p, 2.0),
+                            ORBES_BASE.get(natal_name, ORBES_BASE.get(p, 2.0))
+                        )
+                        dist = distancia_aspecto(lon_now, natal_long, ang)
                         clave = f"{p}__{natal_name}__{asp_name}"
                         estado = ventanas.get(clave)
+
                         if dist <= orbe and estado is None:
-                            ventanas[clave] = {"activo": True, "fecha_inicio": _fecha_str(fecha), "fecha_exacto": _fecha_str(fecha), "dist_min": dist}
+                            ventanas[clave] = {
+                                "activo": True,
+                                "fecha_inicio": _fecha_str(fecha),
+                                "fecha_exacto": _fecha_str(fecha),
+                                "dist_min": dist
+                            }
+
                         elif estado is not None and estado.get("activo"):
                             if dist < estado.get("dist_min", 9999.0):
                                 estado["dist_min"] = dist
                                 estado["fecha_exacto"] = _fecha_str(fecha)
+
                             if dist > orbe:
                                 estado["activo"] = False
                                 evento = {
@@ -373,17 +386,16 @@ def calcular_transitos_natal(
                                     "fecha_fin": _fecha_str(fecha)
                                 }
                                 out[p]["eventos"].append(evento)
-                                ventanas[clave] = estado
 
         fecha += delta
 
-    # cerrar ventanas activas al final
     last_fin = (final_day + timedelta(hours=23)).strftime(DT_FMT)
+
     for clave, estado in list(ventanas.items()):
         if estado.get("activo"):
             partes = clave.split("__")
             if len(partes) >= 3:
-                p, natal, asp = partes[0], partes[1], partes[2]
+                p, natal, asp = partes
                 evento = {
                     "tipo": "aspecto",
                     "origen": "transito_natal",
@@ -397,16 +409,15 @@ def calcular_transitos_natal(
                 }
                 out[p]["eventos"].append(evento)
 
-    # ordenar y armar lista
     def _key(ev):
         for f in ("fecha_exacto", "fecha_inicio", "fecha"):
             if f in ev and ev[f]:
                 try:
                     return datetime.strptime(ev[f], DT_FMT)
-                except Exception:
+                except:
                     try:
                         return datetime.strptime(ev[f], DT_DAY_FMT)
-                    except Exception:
+                    except:
                         pass
         return datetime.min
 
@@ -417,7 +428,6 @@ def calcular_transitos_natal(
         resultado.append(pe)
 
     return resultado
-
 # ============================================================
 # COMBINADOR
 # ============================================================
@@ -657,3 +667,21 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
     )
 
     return fases_unicas
+
+# --- NUEVO: Calcular cúspides (casa) desde fecha/hora natal y coordenadas ---
+def calcular_cuspides_desde_natal(year: int, month: int, day: int, hour: int, minute: int,
+                                  lat: float, lon: float, sistema: str = "P") -> List[float]:
+    """
+    Devuelve lista de 12 cúspides (grados eclípticos) usando swe.houses.
+    'sistema' acepta letras de SWisseph (e.g., 'P' Placidus, 'W' Whole sign? revisar).
+    Retorna lista de 12 floats (cada cúspide en grados 0-360).
+    """
+    jd = swe.julday(year, month, day, hour + (minute or 0) / 60.0)
+    try:
+        # swe.houses devuelve (cusps, ascmc)
+        cusps, ascmc = swe.houses(jd, lat, lon, sistema)
+        # cusps es iterable; devolvemos los primeros 12 (convertir a float)
+        return [float(c) for c in cusps[:12]]
+    except Exception as e:
+        # si falla, retornamos None o lista vacía para que el caller pueda ignorarlo
+        return None
