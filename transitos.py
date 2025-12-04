@@ -565,7 +565,7 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
 
     fecha = inicio
 
-    while fecha <= fin + delta:
+    while fecha <= fin + timedelta(days=1):  # ← asegura recorrer 24h finales
         jd = swe.julday(fecha.year, fecha.month, fecha.day, fecha.hour)
 
         # Longitudes
@@ -581,7 +581,7 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
         # Revisar proximidad a cada fase
         for nombre, ang_obj in objetivos.items():
             dist = abs(elong - ang_obj)
-            if dist < 0.8:  # tolerancia ~1 grado (muy precisa)
+            if dist < 6:  # tolerancia ~1 grado (muy precisa)
                 signo = SIGNOS_NOMBRES[int(lon_luna // 30)]
                 fases.append({
                     "tipo": "fase_lunar",
