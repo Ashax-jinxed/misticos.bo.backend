@@ -548,12 +548,12 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
     """
     Calcula Luna Nueva, Cuarto Creciente, Luna Llena y Cuarto Menguante
     encontrando el momento EXACTO en que la elongación Sol–Luna = 0°, 90°, 180°, 270°.
-    Precisión: interpolación lineal con paso de 30 minutos para mayor exactitud.
+    Usa interpolación lineal con paso de 30 minutos para alta precisión.
     """
+
     inicio = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     fin = datetime.strptime(fecha_final, DT_DAY_FMT)
-
-    delta = timedelta(minutes=30)  # Cambiar a 30 minutos para mayor precisión
+    delta = timedelta(minutes=30)
 
     fases = []
     objetivos = {
@@ -565,48 +565,66 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
 
     fecha = inicio
 
-    while fecha <= fin + timedelta(days=1):  # Asegura recorrer 24h finales
-        jd = swe.julday(fecha.year, fecha.month, fecha.day, fecha.hour + fecha.minute / 60.0)
+    while fecha <= fin + timedelta(days=1):  # Asegura cubrir el último día completo
+        jd = swe.julday(
+            fecha.year, fecha.month, fecha.day,
+            fecha.hour + fecha.minute / 60.0
+        )
 
-        # Longitudes en el tiempo actual
         lon_sol = _calc_long(jd, swe.SUN)
         lon_luna = _calc_long(jd, swe.MOON)
+
         if lon_sol is None or lon_luna is None:
             fecha += delta
             continue
 
-        # Elongación en el tiempo actual
         elong = (lon_luna - lon_sol) % 360
 
-        # Calcular elongación en el siguiente intervalo para interpolación
+        # Siguiente punto temporal para interpolación
         fecha_next = fecha + delta
-        jd_next = swe.julday(fecha_next.year, fecha_next.month, fecha_next.day, fecha_next.hour + fecha_next.minute / 60.0)
+        jd_next = swe.julday(
+            fecha_next.year, fecha_next.month, fecha_next.day,
+            fecha_next.hour + fecha_next.minute / 60.0
+        )
+
         lon_sol_next = _calc_long(jd_next, swe.SUN)
         lon_luna_next = _calc_long(jd_next, swe.MOON)
+
         if lon_sol_next is None or lon_luna_next is None:
             fecha += delta
             continue
+
         elong_next = (lon_luna_next - lon_sol_next) % 360
 
-        # Revisar proximidad a cada fase y aplicar interpolación si hay cruce
+        # Buscar cruces con las elongaciones objetivo
         for nombre, ang_obj in objetivos.items():
-            # Mejorar condición de cruce: considerar wrap-around y proximidad
+
             diff = abs(elong - ang_obj)
             diff_next = abs(elong_next - ang_obj)
-            # Si el ángulo objetivo está cerca (dentro de 1°) o cruza el intervalo
-            if diff <= 1 or diff_next <= 1 or (elong <= ang_obj <= elong_next) or (elong_next <= ang_obj <= elong) or \
-               (elong > elong_next and (elong <= ang_obj or ang_obj <= elong_next)):
-                # Interpolación lineal para encontrar el tiempo exacto
-                if elong_next != elong:  # Evitar división por cero
+
+            # Condiciones de cruce o cercanía
+            cruza = (
+                diff <= 1 or diff_next <= 1 or
+                (elong <= ang_obj <= elong_next) or
+                (elong_next <= ang_obj <= elong) or
+                (elong > elong_next and (elong <= ang_obj or ang_obj <= elong_next))
+            )
+
+            if cruza:
+                # Interpolación lineal
+                if elong_next != elong:
                     frac = (ang_obj - elong) / (elong_next - elong)
-                    if frac < 0:
-                        frac += 1  # Ajuste para wrap-around
+                    if frac < 0:  # Ajustar wrap-around
+                        frac += 1
                     fecha_exacta = fecha + frac * delta
                 else:
-                    fecha_exacta = fecha  # Si no cambia, usar el tiempo actual
+                    fecha_exacta = fecha
 
-                # Calcular signo y grado en el momento exacto
-                jd_exacta = swe.julday(fecha_exacta.year, fecha_exacta.month, fecha_exacta.day, fecha_exacta.hour + fecha_exacta.minute / 60.0)
+                jd_exacta = swe.julday(
+                    fecha_exacta.year, fecha_exacta.month, fecha_exacta.day,
+                    fecha_exacta.hour + fecha_exacta.minute / 60.0
+                )
+
                 lon_luna_exacta = _calc_long(jd_exacta, swe.MOON)
                 if lon_luna_exacta is not None:
                     signo = SIGNOS_NOMBRES[int(lon_luna_exacta // 30)]
@@ -614,7 +632,7 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
                         "tipo": "fase_lunar",
                         "subtipo": nombre,
                         "descripcion": f"{nombre} en {signo}",
-                        "fecha": fecha_exacta.strftime("%Y-%m-%d %H:%M:%S"),  # Incluye hora:min:seg para exactitud
+                        "fecha": fecha_exacta.strftime("%Y-%m-%d %H:%M:%S"),
                         "signo": signo,
                         "grado": lon_luna_exacta % 30,
                         "planeta": "LUNA"
@@ -622,11 +640,20 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
 
         fecha += delta
 
-    # NO filtrar duplicados: registrar todas las fases (el frontend maneja múltiples)
-    # Si quieres limitar, puedes ordenar y tomar las primeras, pero por ahora devolver todas
-    fases.sort(key=lambda x: x["fecha"])  # Ordenar por fecha
+    # ---- FILTRO: una fase por tipo por mes ----
+    fases_filtradas = {}
+    for f in fases:
+        mes = f["fecha"][:7]  # YYYY-MM
+        clave = f"{f['subtipo']}_{mes}"
+        if clave not in fases_filtradas:
+            fases_filtradas[clave] = f
 
-    # Debug temporal: imprime el número de fases encontradas
-    print(f"DEBUG: Encontradas {len(fases)} fases lunares en {fecha_inicio} a {fecha_final}")
+    fases_unicas = list(fases_filtradas.values())
+    fases_unicas.sort(key=lambda x: x["fecha"])
 
-    return fases
+    print(
+        f"DEBUG: Encontradas {len(fases)} fases lunares crudas, "
+        f"filtradas a {len(fases_unicas)} importantes entre {fecha_inicio} y {fecha_final}"
+    )
+
+    return fases_unicas

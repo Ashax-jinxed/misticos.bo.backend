@@ -70,7 +70,7 @@ def api_calcular_carta(req: RequestCarta):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------------------
-# ENDPOINT: calcular-transitos (combina natal + cielo + eclipses)
+# ENDPOINT: calcular-transitos (combina natal + cielo + eclipses + fases lunares)
 # ---------------------------
 @app.post("/calcular-transitos")
 def api_calcular_transitos(req: RequestTransitos):
@@ -120,6 +120,7 @@ def api_calcular_transitos(req: RequestTransitos):
         transitos_natal = resultado.get("transitos_natal", [])
         transitos_cielo = resultado.get("transitos_cielo", [])
         eclipses = resultado.get("eclipses", [])
+        fases_lunares = resultado.get("fases_lunares", [])
         
         # Debug logs
         print(f"\n📊 RESULTADOS:")
@@ -132,6 +133,9 @@ def api_calcular_transitos(req: RequestTransitos):
         print(f"   🌑 Eclipses: {len(eclipses)}")
         for e in eclipses:
             print(f"      - {e.get('fecha')} → {e.get('descripcion')}")
+        print(f"   🌙 Fases Lunares: {len(fases_lunares)}")
+        for f in fases_lunares[:5]:  # Mostrar solo las primeras 5 para no saturar logs
+            print(f"      - {f.get('fecha')} → {f.get('descripcion')}")
 
         # 5) respuesta
         respuesta = {
@@ -143,10 +147,11 @@ def api_calcular_transitos(req: RequestTransitos):
             },
             "transitos_natal": transitos_natal,
             "transitos_cielo": transitos_cielo,
-            "eclipses": eclipses
+            "eclipses": eclipses,
+            "fases_lunares": fases_lunares
         }
         
-        print(f"\n📤 ENVIANDO con {len(eclipses)} eclipses\n")
+        print(f"\n📤 ENVIANDO con {len(eclipses)} eclipses y {len(fases_lunares)} fases lunares\n")
         return respuesta
 
     except Exception as e:
