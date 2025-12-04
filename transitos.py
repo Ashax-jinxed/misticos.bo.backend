@@ -544,32 +544,16 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
 
     return eclipses
 
-# Constantes asumidas (ajusta según tu código)
-DT_DAY_FMT = "%Y-%m-%d"
-SIGNOS_NOMBRES = ["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", 
-                  "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"]
-
-def _calc_long(jd: float, planet: int) -> float | None:
-    """
-    Función auxiliar para calcular la longitud eclíptica de un planeta.
-    Asumiendo implementación con swisseph.
-    """
-    try:
-        xx, _ = swe.calc(jd, planet, swe.FLG_SWIEPH)
-        return xx[0]  # Longitud eclíptica
-    except:
-        return None
-
 def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any]]:
     """
     Calcula Luna Nueva, Cuarto Creciente, Luna Llena y Cuarto Menguante
     encontrando el momento EXACTO en que la elongación Sol–Luna = 0°, 90°, 180°, 270°.
-    Precisión: interpolación lineal para exactitud sub-hora.
+    Precisión: interpolación lineal con paso de 30 minutos para mayor exactitud.
     """
     inicio = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     fin = datetime.strptime(fecha_final, DT_DAY_FMT)
 
-    delta = timedelta(hours=1)
+    delta = timedelta(minutes=30)  # Cambiar a 30 minutos para mayor precisión
 
     fases = []
     objetivos = {
@@ -582,21 +566,21 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
     fecha = inicio
 
     while fecha <= fin + timedelta(days=1):  # Asegura recorrer 24h finales
-        jd = swe.julday(fecha.year, fecha.month, fecha.day, fecha.hour)
+        jd = swe.julday(fecha.year, fecha.month, fecha.day, fecha.hour + fecha.minute / 60.0)
 
-        # Longitudes en la hora actual
+        # Longitudes en el tiempo actual
         lon_sol = _calc_long(jd, swe.SUN)
         lon_luna = _calc_long(jd, swe.MOON)
         if lon_sol is None or lon_luna is None:
             fecha += delta
             continue
 
-        # Elongación en la hora actual
+        # Elongación en el tiempo actual
         elong = (lon_luna - lon_sol) % 360
 
-        # Calcular elongación en la siguiente hora para interpolación
+        # Calcular elongación en el siguiente intervalo para interpolación
         fecha_next = fecha + delta
-        jd_next = swe.julday(fecha_next.year, fecha_next.month, fecha_next.day, fecha_next.hour)
+        jd_next = swe.julday(fecha_next.year, fecha_next.month, fecha_next.day, fecha_next.hour + fecha_next.minute / 60.0)
         lon_sol_next = _calc_long(jd_next, swe.SUN)
         lon_luna_next = _calc_long(jd_next, swe.MOON)
         if lon_sol_next is None or lon_luna_next is None:
@@ -606,9 +590,12 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
 
         # Revisar proximidad a cada fase y aplicar interpolación si hay cruce
         for nombre, ang_obj in objetivos.items():
-            # Verificar si ang_obj está entre elong y elong_next (considerando wrap-around)
-            if (elong <= ang_obj <= elong_next) or (elong_next <= ang_obj <= elong) or \
-               (elong > elong_next and (elong <= ang_obj or ang_obj <= elong_next)):  # Para wrap-around cerca de 0°
+            # Mejorar condición de cruce: considerar wrap-around y proximidad
+            diff = abs(elong - ang_obj)
+            diff_next = abs(elong_next - ang_obj)
+            # Si el ángulo objetivo está cerca (dentro de 1°) o cruza el intervalo
+            if diff <= 1 or diff_next <= 1 or (elong <= ang_obj <= elong_next) or (elong_next <= ang_obj <= elong) or \
+               (elong > elong_next and (elong <= ang_obj or ang_obj <= elong_next)):
                 # Interpolación lineal para encontrar el tiempo exacto
                 if elong_next != elong:  # Evitar división por cero
                     frac = (ang_obj - elong) / (elong_next - elong)
@@ -616,7 +603,7 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
                         frac += 1  # Ajuste para wrap-around
                     fecha_exacta = fecha + frac * delta
                 else:
-                    fecha_exacta = fecha  # Si no cambia, usar la hora actual
+                    fecha_exacta = fecha  # Si no cambia, usar el tiempo actual
 
                 # Calcular signo y grado en el momento exacto
                 jd_exacta = swe.julday(fecha_exacta.year, fecha_exacta.month, fecha_exacta.day, fecha_exacta.hour + fecha_exacta.minute / 60.0)
@@ -635,10 +622,11 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
 
         fecha += delta
 
-    # Eliminar duplicados por subtipo, manteniendo la primera ocurrencia (o la más precisa)
-    fases_unicas = {}
-    for f in fases:
-        if f["subtipo"] not in fases_unicas:
-            fases_unicas[f["subtipo"]] = f
+    # NO filtrar duplicados: registrar todas las fases (el frontend maneja múltiples)
+    # Si quieres limitar, puedes ordenar y tomar las primeras, pero por ahora devolver todas
+    fases.sort(key=lambda x: x["fecha"])  # Ordenar por fecha
 
-    return list(fases_unicas.values())
+    # Debug temporal: imprime el número de fases encontradas
+    print(f"DEBUG: Encontradas {len(fases)} fases lunares en {fecha_inicio} a {fecha_final}")
+
+    return fases
