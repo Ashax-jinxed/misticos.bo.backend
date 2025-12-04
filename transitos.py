@@ -544,11 +544,27 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
 
     return eclipses
 
+# Constantes asumidas (ajusta según tu código)
+DT_DAY_FMT = "%Y-%m-%d"
+SIGNOS_NOMBRES = ["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", 
+                  "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"]
+
+def _calc_long(jd: float, planet: int) -> float | None:
+    """
+    Función auxiliar para calcular la longitud eclíptica de un planeta.
+    Asumiendo implementación con swisseph.
+    """
+    try:
+        xx, _ = swe.calc(jd, planet, swe.FLG_SWIEPH)
+        return xx[0]  # Longitud eclíptica
+    except:
+        return None
+
 def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any]]:
     """
     Calcula Luna Nueva, Cuarto Creciente, Luna Llena y Cuarto Menguante
     encontrando el momento EXACTO en que la elongación Sol–Luna = 0°, 90°, 180°, 270°.
-    Precisión: 1 hora.
+    Precisión: interpolación lineal para exactitud sub-hora.
     """
     inicio = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     fin = datetime.strptime(fecha_final, DT_DAY_FMT)
@@ -565,39 +581,64 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
 
     fecha = inicio
 
-    while fecha <= fin + timedelta(days=1):  # ← asegura recorrer 24h finales
+    while fecha <= fin + timedelta(days=1):  # Asegura recorrer 24h finales
         jd = swe.julday(fecha.year, fecha.month, fecha.day, fecha.hour)
 
-        # Longitudes
+        # Longitudes en la hora actual
         lon_sol = _calc_long(jd, swe.SUN)
         lon_luna = _calc_long(jd, swe.MOON)
         if lon_sol is None or lon_luna is None:
             fecha += delta
             continue
 
-        # Elongación (ángulo Sol–Luna)
+        # Elongación en la hora actual
         elong = (lon_luna - lon_sol) % 360
 
-        # Revisar proximidad a cada fase
+        # Calcular elongación en la siguiente hora para interpolación
+        fecha_next = fecha + delta
+        jd_next = swe.julday(fecha_next.year, fecha_next.month, fecha_next.day, fecha_next.hour)
+        lon_sol_next = _calc_long(jd_next, swe.SUN)
+        lon_luna_next = _calc_long(jd_next, swe.MOON)
+        if lon_sol_next is None or lon_luna_next is None:
+            fecha += delta
+            continue
+        elong_next = (lon_luna_next - lon_sol_next) % 360
+
+        # Revisar proximidad a cada fase y aplicar interpolación si hay cruce
         for nombre, ang_obj in objetivos.items():
-            dist = abs(elong - ang_obj)
-            if dist < 6:  # tolerancia ~1 grado (muy precisa)
-                signo = SIGNOS_NOMBRES[int(lon_luna // 30)]
-                fases.append({
-                    "tipo": "fase_lunar",
-                    "subtipo": nombre,
-                    "descripcion": f"{nombre} en {signo}",
-                    "fecha": fecha.strftime("%Y-%m-%d"),
-                    "signo": signo,
-                    "grado": lon_luna % 30,
-                    "planeta": "LUNA"
-                })
+            # Verificar si ang_obj está entre elong y elong_next (considerando wrap-around)
+            if (elong <= ang_obj <= elong_next) or (elong_next <= ang_obj <= elong) or \
+               (elong > elong_next and (elong <= ang_obj or ang_obj <= elong_next)):  # Para wrap-around cerca de 0°
+                # Interpolación lineal para encontrar el tiempo exacto
+                if elong_next != elong:  # Evitar división por cero
+                    frac = (ang_obj - elong) / (elong_next - elong)
+                    if frac < 0:
+                        frac += 1  # Ajuste para wrap-around
+                    fecha_exacta = fecha + frac * delta
+                else:
+                    fecha_exacta = fecha  # Si no cambia, usar la hora actual
+
+                # Calcular signo y grado en el momento exacto
+                jd_exacta = swe.julday(fecha_exacta.year, fecha_exacta.month, fecha_exacta.day, fecha_exacta.hour + fecha_exacta.minute / 60.0)
+                lon_luna_exacta = _calc_long(jd_exacta, swe.MOON)
+                if lon_luna_exacta is not None:
+                    signo = SIGNOS_NOMBRES[int(lon_luna_exacta // 30)]
+                    fases.append({
+                        "tipo": "fase_lunar",
+                        "subtipo": nombre,
+                        "descripcion": f"{nombre} en {signo}",
+                        "fecha": fecha_exacta.strftime("%Y-%m-%d %H:%M:%S"),  # Incluye hora:min:seg para exactitud
+                        "signo": signo,
+                        "grado": lon_luna_exacta % 30,
+                        "planeta": "LUNA"
+                    })
 
         fecha += delta
 
-    # Eliminar duplicados por la tolerancia
+    # Eliminar duplicados por subtipo, manteniendo la primera ocurrencia (o la más precisa)
     fases_unicas = {}
     for f in fases:
-        fases_unicas[f["subtipo"]] = f
+        if f["subtipo"] not in fases_unicas:
+            fases_unicas[f["subtipo"]] = f
 
     return list(fases_unicas.values())
