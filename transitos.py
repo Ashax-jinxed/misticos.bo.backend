@@ -433,7 +433,8 @@ def calcular_transitos_completo(
         "periodo": {"inicio": fecha_inicio, "fin": fecha_final},
         "transitos_natal": [],
         "transitos_cielo": [],
-        "eclipses": []  # <-- AGREGAR
+        "eclipses": [] ,
+        "fases_lunares": []
     }
     
     if posiciones_natales:
@@ -448,6 +449,8 @@ def calcular_transitos_completo(
     
     # CALCULAR ECLIPSES
     salida["eclipses"] = calcular_eclipses(fecha_inicio, fecha_final)
+    salida["fases_lunares"] = calcular_fases_lunares(fecha_inicio, fecha_final)
+
     
     return salida
 # Agregar esta función a transitos.py
@@ -540,3 +543,50 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
         jd = jd_eclipse + 170
 
     return eclipses
+
+def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any]]:
+    inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
+    final_day = datetime.strptime(fecha_final, DT_DAY_FMT)
+
+    jd_inicio = swe.julday(inicio_day.year, inicio_day.month, inicio_day.day, 0)
+    jd_final  = swe.julday(final_day.year, final_day.month, final_day.day, 23.99)
+
+    fases = []
+
+    # Empezamos un poco antes
+    jd = jd_inicio - 35
+
+    while jd < jd_final + 40:
+        try:
+            luna_nueva, cuarto_creciente, luna_llena, cuarto_menguante = swe.phases(jd)
+        except Exception:
+            break
+
+        candidatos = [
+            ("Luna Nueva", luna_nueva),
+            ("Cuarto Creciente", cuarto_creciente),
+            ("Luna Llena", luna_llena),
+            ("Cuarto Menguante", cuarto_menguante)
+        ]
+
+        for nombre, jd_fase in candidatos:
+            if jd_fase is None:
+                continue
+            if jd_inicio <= jd_fase <= jd_final:
+                y, m, d = swe.revjul(jd_fase)[:3]
+                long_luna = _calc_long(jd_fase, swe.MOON)
+                signo = SIGNOS_NOMBRES[int(long_luna // 30)]
+
+                fases.append({
+                    "tipo": "fase_lunar",
+                    "descripcion": f"{nombre} en {signo}",
+                    "subtipo": nombre,
+                    "fecha": f"{y}-{m:02d}-{d:02d}",
+                    "signo": signo,
+                    "grado": long_luna % 30,
+                    "planeta": "LUNA"
+                })
+
+        jd += 29.5  # Avanzamos un mes lunar
+
+    return fases
