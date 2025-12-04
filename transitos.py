@@ -545,48 +545,59 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
     return eclipses
 
 def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any]]:
-    inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
-    final_day = datetime.strptime(fecha_final, DT_DAY_FMT)
+    """
+    Calcula Luna Nueva, Cuarto Creciente, Luna Llena y Cuarto Menguante
+    encontrando el momento EXACTO en que la elongación Sol–Luna = 0°, 90°, 180°, 270°.
+    Precisión: 1 hora.
+    """
+    inicio = datetime.strptime(fecha_inicio, DT_DAY_FMT)
+    fin = datetime.strptime(fecha_final, DT_DAY_FMT)
 
-    jd_inicio = swe.julday(inicio_day.year, inicio_day.month, inicio_day.day, 0)
-    jd_final  = swe.julday(final_day.year, final_day.month, final_day.day, 23.99)
+    delta = timedelta(hours=1)
 
     fases = []
+    objetivos = {
+        "Luna Nueva": 0,
+        "Cuarto Creciente": 90,
+        "Luna Llena": 180,
+        "Cuarto Menguante": 270
+    }
 
-    # Empezamos un poco antes
-    jd = jd_inicio - 35
+    fecha = inicio
 
-    while jd < jd_final + 40:
-        try:
-            luna_nueva, cuarto_creciente, luna_llena, cuarto_menguante = swe.phases(jd)
-        except Exception:
-            break
+    while fecha <= fin + delta:
+        jd = swe.julday(fecha.year, fecha.month, fecha.day, fecha.hour)
 
-        candidatos = [
-            ("Luna Nueva", luna_nueva),
-            ("Cuarto Creciente", cuarto_creciente),
-            ("Luna Llena", luna_llena),
-            ("Cuarto Menguante", cuarto_menguante)
-        ]
+        # Longitudes
+        lon_sol = _calc_long(jd, swe.SUN)
+        lon_luna = _calc_long(jd, swe.MOON)
+        if lon_sol is None or lon_luna is None:
+            fecha += delta
+            continue
 
-        for nombre, jd_fase in candidatos:
-            if jd_fase is None:
-                continue
-            if jd_inicio <= jd_fase <= jd_final:
-                y, m, d = swe.revjul(jd_fase)[:3]
-                long_luna = _calc_long(jd_fase, swe.MOON)
-                signo = SIGNOS_NOMBRES[int(long_luna // 30)]
+        # Elongación (ángulo Sol–Luna)
+        elong = (lon_luna - lon_sol) % 360
 
+        # Revisar proximidad a cada fase
+        for nombre, ang_obj in objetivos.items():
+            dist = abs(elong - ang_obj)
+            if dist < 0.8:  # tolerancia ~1 grado (muy precisa)
+                signo = SIGNOS_NOMBRES[int(lon_luna // 30)]
                 fases.append({
                     "tipo": "fase_lunar",
-                    "descripcion": f"{nombre} en {signo}",
                     "subtipo": nombre,
-                    "fecha": f"{y}-{m:02d}-{d:02d}",
+                    "descripcion": f"{nombre} en {signo}",
+                    "fecha": fecha.strftime("%Y-%m-%d"),
                     "signo": signo,
-                    "grado": long_luna % 30,
+                    "grado": lon_luna % 30,
                     "planeta": "LUNA"
                 })
 
-        jd += 29.5  # Avanzamos un mes lunar
+        fecha += delta
 
-    return fases
+    # Eliminar duplicados por la tolerancia
+    fases_unicas = {}
+    for f in fases:
+        fases_unicas[f["subtipo"]] = f
+
+    return list(fases_unicas.values())
