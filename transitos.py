@@ -461,8 +461,10 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
 
     eclipses = []
 
-    # Buscar eclipses solares correctamente
-    jd = jd_inicio - 40   # ir un poco antes para buscar correctamente
+    # -----------------------------
+    # 🌞 ECLIPSES SOLARES
+    # -----------------------------
+    jd = jd_inicio - 40
     while True:
         res = swe.sol_eclipse_when_glob(jd, swe.FLG_SWIEPH)
         jd_eclipse = res[1][0]
@@ -475,10 +477,16 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
             long_sol = _calc_long(jd_eclipse, swe.SUN)
             signo = SIGNOS_NOMBRES[int(long_sol // 30)]
 
-            tipo = "Eclipse Solar"
-            if res[0] & swe.SE_ECL_TOTAL: tipo = "Eclipse Solar Total"
-            elif res[0] & swe.SE_ECL_ANNULAR: tipo = "Eclipse Solar Anular"
-            elif res[0] & swe.SE_ECL_PARTIAL: tipo = "Eclipse Solar Parcial"
+            # Tipo correcto
+            flags = res[0]
+            if flags & swe.ECL_TOTAL:
+                tipo = "Eclipse Solar Total"
+            elif flags & swe.ECL_ANNULAR:
+                tipo = "Eclipse Solar Anular"
+            elif flags & swe.ECL_PARTIAL:
+                tipo = "Eclipse Solar Parcial"
+            else:
+                tipo = "Eclipse Solar"
 
             eclipses.append({
                 "tipo": "eclipse",
@@ -490,9 +498,12 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
                 "planeta": "SOL"
             })
 
-        jd = jd_eclipse + 170  # avanzar un ciclo
+        jd = jd_eclipse + 170  # Saltar al siguiente posible eclipse
 
-    # Buscar eclipses lunares correctamente
+
+    # -----------------------------
+    # 🌕 ECLIPSES LUNARES
+    # -----------------------------
     jd = jd_inicio - 40
     while True:
         res = swe.lun_eclipse_when(jd, swe.FLG_SWIEPH)
@@ -506,10 +517,15 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
             long_luna = _calc_long(jd_eclipse, swe.MOON)
             signo = SIGNOS_NOMBRES[int(long_luna // 30)]
 
-            tipo = "Eclipse Lunar"
-            if res[0] & swe.SE_ECL_TOTAL: tipo = "Eclipse Lunar Total"
-            elif res[0] & swe.SE_ECL_PARTIAL: tipo = "Eclipse Lunar Parcial"
-            elif res[0] & swe.SE_ECL_PENUMBRAL: tipo = "Eclipse Lunar Penumbral"
+            flags = res[0]
+            if flags & swe.ECL_TOTAL:
+                tipo = "Eclipse Lunar Total"
+            elif flags & swe.ECL_PARTIAL:
+                tipo = "Eclipse Lunar Parcial"
+            elif flags & swe.ECL_PENUMBRAL:
+                tipo = "Eclipse Lunar Penumbral"
+            else:
+                tipo = "Eclipse Lunar"
 
             eclipses.append({
                 "tipo": "eclipse",
