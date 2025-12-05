@@ -95,7 +95,7 @@ def api_calcular_transitos(req: RequestTransitos):
             posiciones_natales=posiciones_natales if posiciones_natales else None,
             cuspides=None,  # ← Ya no pasamos cúspides
             incluir_luna=req.incluir_luna,
-            incluir_cielo=req.incluir_cielo,
+            incluir_cielo=True,
             sistema=req.sistema,
             # ⬇️ PASAR DATOS NATALES:
             año_natal=req.año_natal,
