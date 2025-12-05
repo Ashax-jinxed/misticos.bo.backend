@@ -80,33 +80,74 @@ def api_calcular_transitos(req: RequestTransitos):
         print(f"   Modo: {'NATAL' if not req.incluir_cielo else 'CIELO'}")
         print(f"{'='*60}\n")
         
-        # 1) calcular carta natal
+        # ------------------------------------------------------
+        # 1) CALCULAR CARTA NATAL
+        # ------------------------------------------------------
         carta = calcular_carta_natal(
-            req.año_natal, req.mes_natal, req.dia_natal, req.hora_natal, req.minuto_natal,
-            req.latitud_natal, req.longitud_natal, req.zona_horaria_natal,
+            req.año_natal, req.mes_natal, req.dia_natal,
+            req.hora_natal, req.minuto_natal,
+            req.latitud_natal, req.longitud_natal,
+            req.zona_horaria_natal,
             sistema_casas=req.sistema
         )
 
-        # 2) extraer posiciones natales y cuspides
+        # ------------------------------------------------------
+        # 2) EXTRAER POSICIONES NATIVAS
+        # ------------------------------------------------------
         posiciones_natales = {}
-        cuspides = None
         if isinstance(carta, dict) and "carta" in carta:
             for nombre, info in carta["carta"].items():
                 if isinstance(info, dict) and "longitud" in info:
                     posiciones_natales[nombre] = float(info["longitud"])
             print(f"✅ Posiciones natales: {len(posiciones_natales)}")
-                    
-        if isinstance(carta, dict) and "cuspides" in carta:
-            try:
-                cuspides_raw = carta.get("cuspides_raw") or carta.get("cuspides_degrees")
-                if isinstance(cuspides_raw, list) and len(cuspides_raw) == 12:
-                    cuspides = cuspides_raw
-                    print(f"✅ Cúspides: {len(cuspides)}")
-            except Exception:
-                cuspides = None
 
-        # 3) calcular tránsitos
+        # ------------------------------------------------------
+        # 3) EXTRAER / GENERAR CÚSPIDES (FIX COMPLETO)
+        # ------------------------------------------------------
+        cuspides = None
+
+        # 3.1 buscar en keys comunes
+        if isinstance(carta, dict):
+            cuspides_raw = None
+            for k in ("cuspides", "cuspides_raw", "cuspides_degrees", "cusps"):
+                if k in carta and isinstance(carta[k], list) and len(carta[k]) == 12:
+                    cuspides_raw = carta[k]
+                    break
+
+            # 3.2 si no vienen explícitas, intentar las alternativas
+            if cuspides_raw is None:
+                cuspides_raw = carta.get("cuspides_raw") or carta.get("cuspides_degrees")
+
+            # 3.3 si existen, tomar
+            if isinstance(cuspides_raw, list) and len(cuspides_raw) == 12:
+                cuspides = [float(x) for x in cuspides_raw]
+                print(f"✅ Cúspides extraídas: {len(cuspides)}")
+
+            # 3.4 fallback: generar desde transitos.py si nada funcionó
+            if cuspides is None:
+                try:
+                    if hasattr(__import__("transitos"), "calcular_cuspides_desde_natal"):
+                        from transitos import calcular_cuspides_desde_natal
+                        cuspides_try = calcular_cuspides_desde_natal(
+                            req.año_natal, req.mes_natal, req.dia_natal,
+                            req.hora_natal, req.minuto_natal,
+                            req.latitud_natal, req.longitud_natal,
+                            req.sistema
+                        )
+                        if isinstance(cuspides_try, list) and len(cuspides_try) == 12:
+                            cuspides = [float(x) for x in cuspides_try]
+                            print(f"✅ Cúspides generadas: {len(cuspides)}")
+                except Exception as e:
+                    print("⚠️ No se pudieron generar cúspides automáticamente:", str(e))
+
+        if cuspides is None:
+            print("❌ NO HAY CÚSPIDES — NO HABRÁ CAMBIOS DE CASA")
+
+        # ------------------------------------------------------
+        # 4) CALCULAR TRÁNSITOS
+        # ------------------------------------------------------
         print(f"\n🔄 Calculando tránsitos...")
+
         resultado = calcular_transitos_completo(
             req.fecha_inicio,
             req.fecha_final,
@@ -116,28 +157,29 @@ def api_calcular_transitos(req: RequestTransitos):
             incluir_cielo=req.incluir_cielo
         )
 
-        # 4) Extraer componentes
         transitos_natal = resultado.get("transitos_natal", [])
         transitos_cielo = resultado.get("transitos_cielo", [])
         eclipses = resultado.get("eclipses", [])
         fases_lunares = resultado.get("fases_lunares", [])
-        
-        # Debug logs
+
+        # ------------------------------------------------------
+        # 5) DEBUG RESUMIDO
+        # ------------------------------------------------------
         print(f"\n📊 RESULTADOS:")
         print(f"   🌍 Tránsitos natales: {len(transitos_natal)} planetas")
         for t in transitos_natal:
             print(f"      - {t.get('planeta')}: {len(t.get('eventos', []))} eventos")
+
         print(f"   🌌 Tránsitos cielo: {len(transitos_cielo)} planetas")
         for t in transitos_cielo:
             print(f"      - {t.get('planeta')}: {len(t.get('eventos', []))} eventos")
-        print(f"   🌑 Eclipses: {len(eclipses)}")
-        for e in eclipses:
-            print(f"      - {e.get('fecha')} → {e.get('descripcion')}")
-        print(f"   🌙 Fases Lunares: {len(fases_lunares)}")
-        for f in fases_lunares[:5]:  # Mostrar solo las primeras 5 para no saturar logs
-            print(f"      - {f.get('fecha')} → {f.get('descripcion')}")
 
-        # 5) respuesta
+        print(f"   🌑 Eclipses: {len(eclipses)}")
+        print(f"   🌙 Fases Lunares: {len(fases_lunares)}")
+
+        # ------------------------------------------------------
+        # 6) RESPUESTA
+        # ------------------------------------------------------
         respuesta = {
             "periodo": {"inicio": req.fecha_inicio, "fin": req.fecha_final},
             "natal": {
@@ -150,12 +192,12 @@ def api_calcular_transitos(req: RequestTransitos):
             "eclipses": eclipses,
             "fases_lunares": fases_lunares
         }
-        
-        print(f"\n📤 ENVIANDO con {len(eclipses)} eclipses y {len(fases_lunares)} fases lunares\n")
+
+        print(f"\n📤 Enviando respuesta final…")
         return respuesta
 
     except Exception as e:
-        print(f"\n❌ ERROR: {str(e)}")
+        print(f"\n❌ ERROR en /calcular-transitos: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

@@ -319,6 +319,7 @@ def calcular_transitos_natal(
                         "planeta": p,
                         "casa_anterior": prev_casa,
                         "casa_nueva": casa_now,
+                        "casa": casa_now,
                         "descripcion": f"{p} ingresa a casa {casa_now}",
                         "fecha": _fecha_str(fecha)
                     }
