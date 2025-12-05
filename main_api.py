@@ -105,26 +105,7 @@ def api_calcular_transitos(req: RequestTransitos):
             minuto_natal=req.minuto_natal,
             latitud_natal=req.latitud_natal,
             longitud_natal=req.longitud_natal
-        )
-
-        # ... resto del código igual ...
-
-        # ------------------------------------------------------
-        # 4) CALCULAR TRÁNSITOS
-        # ------------------------------------------------------
-        print(f"\n🔄 Calculando tránsitos...")
-
-        resultado = calcular_transitos_completo(
-            req.fecha_inicio,
-            req.fecha_final,
-            posiciones_natales=posiciones_natales if posiciones_natales else None,
-           
-            incluir_luna=req.incluir_luna,
-            incluir_cielo=req.incluir_cielo,
-            sistema=req.sistema  # ⬅️ AGREGAR ESTA LÍNEA
-        )
-
-        print(f"   ðŸ  Sistema de casas usado: {req.sistema}")      
+        )    
 
         transitos_natal = resultado.get("transitos_natal", [])
         transitos_cielo = resultado.get("transitos_cielo", [])
