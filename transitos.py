@@ -280,8 +280,11 @@ def calcular_transitos_natal(
     # CALCULAR CÚSPIDES SI NO SE PROPORCIONARON
     # ============================================================
     if cuspides is None:
-        # Si tenemos datos natales, calcular cúspides
         if all([año_natal, mes_natal, dia_natal, latitud_natal, longitud_natal]):
+            print(f"🔍 DEBUG: Intentando calcular cúspides con:")
+            print(f"   Fecha: {año_natal}-{mes_natal}-{dia_natal} {hora_natal or 12}:{minuto_natal or 0}")
+            print(f"   Coords: lat={latitud_natal}, lon={longitud_natal}")
+            print(f"   Sistema: {sistema}")
             try:
                 cuspides = calcular_cuspides_desde_natal(
                     año_natal, mes_natal, dia_natal,
@@ -294,7 +297,9 @@ def calcular_transitos_natal(
                 else:
                     print("⚠️ No se pudieron calcular cúspides - no habrá cambios de casa")
             except Exception as e:
-                print(f"⚠️ Error calculando cúspides: {e}")
+                print(f"❌ ERROR CALCULANDO CÚSPIDES: {e}")
+                import traceback
+                traceback.print_exc()
                 cuspides = None
         else:
             print("⚠️ Faltan datos natales para calcular cúspides")
