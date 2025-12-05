@@ -268,7 +268,8 @@ def calcular_transitos_natal(
     hora_natal: Optional[int] = None,
     minuto_natal: Optional[int] = None,
     latitud_natal: Optional[float] = None,
-    longitud_natal: Optional[float] = None
+    longitud_natal: Optional[float] = None,
+    zona_horaria_natal: int = -4 
 ) -> List[Dict[str, Any]]:
 
     inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
@@ -290,7 +291,8 @@ def calcular_transitos_natal(
                     año_natal, mes_natal, dia_natal,
                     hora_natal or 12, minuto_natal or 0,
                     latitud_natal, longitud_natal,
-                    sistema
+                    sistema,
+                    zona_horaria_natal
                 )
                 if cuspides and len(cuspides) == 12:
                     print(f"✅ Cúspides calculadas internamente: {len(cuspides)}")
@@ -756,26 +758,36 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
 
 # --- NUEVO: Calcular cúspides (casa) desde fecha/hora natal y coordenadas ---
 def calcular_cuspides_desde_natal(year: int, month: int, day: int, hour: int, minute: int,
-                                  lat: float, lon: float, sistema: str = "P") -> List[float]:
+                                  lat: float, lon: float, sistema: str = "P", 
+                                  zona_horaria: int = -4) -> List[float]:
     """
     Devuelve lista de 12 cúspides (grados eclípticos) usando swe.houses.
+    IMPORTANTE: Ajusta hora local a UTC antes de calcular.
     """
     print(f"🏠 calcular_cuspides_desde_natal() LLAMADA")
-    print(f"   Parámetros: {year}-{month}-{day} {hour}:{minute}, lat={lat}, lon={lon}, sistema={sistema}")
+    print(f"   Parámetros: {year}-{month}-{day} {hour}:{minute}, lat={lat}, lon={lon}, sistema={sistema}, TZ={zona_horaria}")
     
-    jd = swe.julday(year, month, day, hour + (minute or 0) / 60.0)
-    print(f"   JD calculado: {jd}")
+    # ⬇️ AJUSTAR A UTC (igual que carta_natal.py)
+    hora_utc = hour - zona_horaria
+    dia_utc = day
+    if hora_utc >= 24:
+        hora_utc -= 24
+        dia_utc += 1
+    elif hora_utc < 0:
+        hora_utc += 24
+        dia_utc -= 1
+    
+    jd = swe.julday(year, month, dia_utc, hora_utc + (minute or 0) / 60.0)
+    print(f"   JD calculado: {jd} (UTC: {hora_utc}:{minute})")
     
     try:
-        cusps, ascmc = swe.houses(jd, lat, lon, sistema.encode('utf-8'))  # ← AGREGAR .encode()
-        print(f"   ✅ swe.houses() ejecutado")
-        print(f"   Cúspides raw: {cusps[:12]}")
+        cusps, ascmc = swe.houses(jd, lat, lon, b'P')  # ⬅️ usar b'P' directo
+        print(f"   ✅ ASC: {ascmc[0]:.2f}°, MC: {ascmc[1]:.2f}°")
+        print(f"   Cúspides: {[f'{c:.2f}°' for c in cusps[:12]]}")
         
-        resultado = [float(c) for c in cusps[:12]]
-        print(f"   ✅ Retornando {len(resultado)} cúspides")
-        return resultado
+        return [float(c) for c in cusps[:12]]
     except Exception as e:
-        print(f"   ❌ ERROR en swe.houses(): {e}")
+        print(f"   ❌ ERROR: {e}")
         import traceback
         traceback.print_exc()
         return None

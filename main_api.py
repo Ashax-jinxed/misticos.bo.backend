@@ -104,7 +104,8 @@ def api_calcular_transitos(req: RequestTransitos):
             hora_natal=req.hora_natal,
             minuto_natal=req.minuto_natal,
             latitud_natal=req.latitud_natal,
-            longitud_natal=req.longitud_natal
+            longitud_natal=req.longitud_natal,
+            zona_horaria_natal=req.zona_horaria_natal
         )    
 
         transitos_natal = resultado.get("transitos_natal", [])
