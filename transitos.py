@@ -258,15 +258,53 @@ def calcular_transitos_natal(
     fecha_inicio: str,
     fecha_final: str,
     posiciones_natales: Optional[Dict[str, float]] = None,
-    cuspides: Optional[List[float]] = None,
+    cuspides: Optional[List[float]] = None,  # ← Mantener para compatibilidad
     incluir_luna: bool = True,
-    sistema: str = "P"  # ⬅️ NUEVO PARÁMETRO
+    sistema: str = "P",
+    # ⬇️ AGREGAR ESTOS PARÁMETROS:
+    año_natal: Optional[int] = None,
+    mes_natal: Optional[int] = None,
+    dia_natal: Optional[int] = None,
+    hora_natal: Optional[int] = None,
+    minuto_natal: Optional[int] = None,
+    latitud_natal: Optional[float] = None,
+    longitud_natal: Optional[float] = None
 ) -> List[Dict[str, Any]]:
 
     inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     final_day = datetime.strptime(fecha_final, DT_DAY_FMT)
     delta = timedelta(hours=1)
+    
+    # ⬇️ AGREGAR ESTA SECCIÓN COMPLETA:
+    # ============================================================
+    # CALCULAR CÚSPIDES SI NO SE PROPORCIONARON
+    # ============================================================
+    if cuspides is None:
+        # Si tenemos datos natales, calcular cúspides
+        if all([año_natal, mes_natal, dia_natal, latitud_natal, longitud_natal]):
+            try:
+                cuspides = calcular_cuspides_desde_natal(
+                    año_natal, mes_natal, dia_natal,
+                    hora_natal or 12, minuto_natal or 0,
+                    latitud_natal, longitud_natal,
+                    sistema
+                )
+                if cuspides and len(cuspides) == 12:
+                    print(f"✅ Cúspides calculadas internamente: {len(cuspides)}")
+                else:
+                    print("⚠️ No se pudieron calcular cúspides - no habrá cambios de casa")
+            except Exception as e:
+                print(f"⚠️ Error calculando cúspides: {e}")
+                cuspides = None
+        else:
+            print("⚠️ Faltan datos natales para calcular cúspides")
+    else:
+        print(f"✅ Usando cúspides proporcionadas: {len(cuspides)}")
+    # ============================================================
 
+    planetas = list(PLANETAS.keys())
+    if not incluir_luna and "LUNA" in planetas:
+        planetas.remove("LUNA")
     planetas = list(PLANETAS.keys())
     if not incluir_luna and "LUNA" in planetas:
         planetas.remove("LUNA")
@@ -462,7 +500,15 @@ def calcular_transitos_completo(
     cuspides: Optional[List[float]] = None,
     incluir_luna: bool = True,
     incluir_cielo: bool = True,
-    sistema: str = "P"
+    sistema: str = "P",
+    # ⬇️ AGREGAR ESTOS PARÁMETROS:
+    año_natal: Optional[int] = None,
+    mes_natal: Optional[int] = None,
+    dia_natal: Optional[int] = None,
+    hora_natal: Optional[int] = None,
+    minuto_natal: Optional[int] = None,
+    latitud_natal: Optional[float] = None,
+    longitud_natal: Optional[float] = None
 ) -> Dict[str, Any]:
     salida = {
         "periodo": {"inicio": fecha_inicio, "fin": fecha_final},
@@ -475,7 +521,15 @@ def calcular_transitos_completo(
     if posiciones_natales:
         salida["transitos_natal"] = calcular_transitos_natal(
             fecha_inicio, fecha_final, posiciones_natales, cuspides, incluir_luna,
-            sistema=sistema
+            sistema=sistema,
+            # ⬇️ PASAR LOS DATOS NATALES:
+            año_natal=año_natal,
+            mes_natal=mes_natal,
+            dia_natal=dia_natal,
+            hora_natal=hora_natal,
+            minuto_natal=minuto_natal,
+            latitud_natal=latitud_natal,
+            longitud_natal=longitud_natal
         )
     
     if incluir_cielo:
@@ -483,10 +537,11 @@ def calcular_transitos_completo(
             fecha_inicio, fecha_final, incluir_luna
         )
     
-    # CALCULAR ECLIPSES
     salida["eclipses"] = calcular_eclipses(fecha_inicio, fecha_final)
     salida["fases_lunares"] = calcular_fases_lunares(fecha_inicio, fecha_final)
-
+    
+    return salida
+   
     
     return salida
 # Agregar esta función a transitos.py

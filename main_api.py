@@ -54,34 +54,17 @@ class RequestTransitos(BaseModel):
     incluir_cielo: bool = True
     incluir_luna: bool = True
 
-# ---------------------------
-# ENDPOINT: calcular-carta
-# ---------------------------
-@app.post("/calcular-carta")
-def api_calcular_carta(req: RequestCarta):
-    try:
-        resultado = calcular_carta_natal(
-            req.año, req.mes, req.dia, req.hora, req.minuto,
-            req.latitud, req.longitud, req.zona_horaria,
-            sistema_casas=req.sistema
-        )
-        return resultado
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ---------------------------
-# ENDPOINT: calcular-transitos (combina natal + cielo + eclipses + fases lunares)
-# ---------------------------
 @app.post("/calcular-transitos")
 def api_calcular_transitos(req: RequestTransitos):
     try:
         print(f"\n{'='*60}")
-        print(f"📥 REQUEST: {req.fecha_inicio} → {req.fecha_final}")
+        print(f"🔥 REQUEST: {req.fecha_inicio} → {req.fecha_final}")
         print(f"   Modo: {'NATAL' if not req.incluir_cielo else 'CIELO'}")
+        print(f"   🏠 Sistema de casas: {req.sistema}")
         print(f"{'='*60}\n")
         
         # ------------------------------------------------------
-        # 1) CALCULAR CARTA NATAL
+        # 1) CALCULAR CARTA NATAL (solo para posiciones)
         # ------------------------------------------------------
         carta = calcular_carta_natal(
             req.año_natal, req.mes_natal, req.dia_natal,
@@ -102,46 +85,29 @@ def api_calcular_transitos(req: RequestTransitos):
             print(f"✅ Posiciones natales: {len(posiciones_natales)}")
 
         # ------------------------------------------------------
-        # 3) EXTRAER / GENERAR CÚSPIDES (FIX COMPLETO)
+        # 3) CALCULAR TRÁNSITOS (sin pasar cúspides - las calcula internamente)
         # ------------------------------------------------------
-        cuspides = None
+        print(f"\n🔄 Calculando tránsitos...")
 
-        # 3.1 buscar en keys comunes
-        if isinstance(carta, dict):
-            cuspides_raw = None
-            for k in ("cuspides", "cuspides_raw", "cuspides_degrees", "cusps"):
-                if k in carta and isinstance(carta[k], list) and len(carta[k]) == 12:
-                    cuspides_raw = carta[k]
-                    break
+        resultado = calcular_transitos_completo(
+            req.fecha_inicio,
+            req.fecha_final,
+            posiciones_natales=posiciones_natales if posiciones_natales else None,
+            cuspides=None,  # ← Ya no pasamos cúspides
+            incluir_luna=req.incluir_luna,
+            incluir_cielo=req.incluir_cielo,
+            sistema=req.sistema,
+            # ⬇️ PASAR DATOS NATALES:
+            año_natal=req.año_natal,
+            mes_natal=req.mes_natal,
+            dia_natal=req.dia_natal,
+            hora_natal=req.hora_natal,
+            minuto_natal=req.minuto_natal,
+            latitud_natal=req.latitud_natal,
+            longitud_natal=req.longitud_natal
+        )
 
-            # 3.2 si no vienen explícitas, intentar las alternativas
-            if cuspides_raw is None:
-                cuspides_raw = carta.get("cuspides_raw") or carta.get("cuspides_degrees")
-
-            # 3.3 si existen, tomar
-            if isinstance(cuspides_raw, list) and len(cuspides_raw) == 12:
-                cuspides = [float(x) for x in cuspides_raw]
-                print(f"✅ Cúspides extraídas: {len(cuspides)}")
-
-            # 3.4 fallback: generar desde transitos.py si nada funcionó
-            if cuspides is None:
-                try:
-                    if hasattr(__import__("transitos"), "calcular_cuspides_desde_natal"):
-                        from transitos import calcular_cuspides_desde_natal
-                        cuspides_try = calcular_cuspides_desde_natal(
-                            req.año_natal, req.mes_natal, req.dia_natal,
-                            req.hora_natal, req.minuto_natal,
-                            req.latitud_natal, req.longitud_natal,
-                            req.sistema
-                        )
-                        if isinstance(cuspides_try, list) and len(cuspides_try) == 12:
-                            cuspides = [float(x) for x in cuspides_try]
-                            print(f"✅ Cúspides generadas: {len(cuspides)}")
-                except Exception as e:
-                    print("⚠️ No se pudieron generar cúspides automáticamente:", str(e))
-
-        if cuspides is None:
-            print("❌ NO HAY CÚSPIDES — NO HABRÁ CAMBIOS DE CASA")
+        # ... resto del código igual ...
 
         # ------------------------------------------------------
         # 4) CALCULAR TRÁNSITOS
@@ -152,7 +118,7 @@ def api_calcular_transitos(req: RequestTransitos):
             req.fecha_inicio,
             req.fecha_final,
             posiciones_natales=posiciones_natales if posiciones_natales else None,
-            cuspides=cuspides,
+           
             incluir_luna=req.incluir_luna,
             incluir_cielo=req.incluir_cielo,
             sistema=req.sistema  # ⬅️ AGREGAR ESTA LÍNEA
