@@ -759,15 +759,23 @@ def calcular_cuspides_desde_natal(year: int, month: int, day: int, hour: int, mi
                                   lat: float, lon: float, sistema: str = "P") -> List[float]:
     """
     Devuelve lista de 12 cúspides (grados eclípticos) usando swe.houses.
-    'sistema' acepta letras de SWisseph (e.g., 'P' Placidus, 'W' Whole sign? revisar).
-    Retorna lista de 12 floats (cada cúspide en grados 0-360).
     """
+    print(f"🏠 calcular_cuspides_desde_natal() LLAMADA")
+    print(f"   Parámetros: {year}-{month}-{day} {hour}:{minute}, lat={lat}, lon={lon}, sistema={sistema}")
+    
     jd = swe.julday(year, month, day, hour + (minute or 0) / 60.0)
+    print(f"   JD calculado: {jd}")
+    
     try:
-        # swe.houses devuelve (cusps, ascmc)
-        cusps, ascmc = swe.houses(jd, lat, lon, sistema)
-        # cusps es iterable; devolvemos los primeros 12 (convertir a float)
-        return [float(c) for c in cusps[:12]]
+        cusps, ascmc = swe.houses(jd, lat, lon, sistema.encode('utf-8'))  # ← AGREGAR .encode()
+        print(f"   ✅ swe.houses() ejecutado")
+        print(f"   Cúspides raw: {cusps[:12]}")
+        
+        resultado = [float(c) for c in cusps[:12]]
+        print(f"   ✅ Retornando {len(resultado)} cúspides")
+        return resultado
     except Exception as e:
-        # si falla, retornamos None o lista vacía para que el caller pueda ignorarlo
+        print(f"   ❌ ERROR en swe.houses(): {e}")
+        import traceback
+        traceback.print_exc()
         return None
