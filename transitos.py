@@ -515,7 +515,8 @@ def calcular_transitos_completo(
     hora_natal: Optional[int] = None,
     minuto_natal: Optional[int] = None,
     latitud_natal: Optional[float] = None,
-    longitud_natal: Optional[float] = None
+    longitud_natal: Optional[float] = None,
+    zona_horaria_natal: int = -4 
 ) -> Dict[str, Any]:
     salida = {
         "periodo": {"inicio": fecha_inicio, "fin": fecha_final},
