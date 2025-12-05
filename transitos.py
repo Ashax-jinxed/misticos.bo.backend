@@ -13,6 +13,8 @@ from pathlib import Path
 import swisseph as swe
 import os
 
+
+    
 BASE_DIR = Path(__file__).resolve().parent
 EPHE_PATH = str(BASE_DIR / "ephe")
 os.makedirs(EPHE_PATH, exist_ok=True)
@@ -109,7 +111,26 @@ def obtener_casa_desde_cuspides(long_ec: float, cuspides: List[float]) -> int:
         if a <= long_n < b_n:
             return i + 1
     return 12
-
+def obtener_casa_desde_cuspides_o_wholesign(
+    long_ec: float, 
+    cuspides: List[float], 
+    sistema: str = "P"
+) -> int:
+    """
+    Calcula la casa según el sistema elegido.
+    - P (Placidus): usa cúspides calculadas
+    - W (Whole Sign): divide en 12 sectores desde el ASC
+    """
+    if sistema == "W":
+        # Whole Sign: cada signo = 1 casa
+        signo_punto = int(long_ec // 30) % 12
+        signo_asc = int(cuspides[0] // 30) % 12  # cuspides[0] = ASC
+        casa = ((signo_punto - signo_asc) % 12) + 1
+        return casa
+    else:
+        # Placidus (original)
+        return obtener_casa_desde_cuspides(long_ec, cuspides)
+    
 def calcular_transitos_cielo(fecha_inicio: str, fecha_final: str, incluir_luna: bool = True) -> List[Dict[str, Any]]:
     inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     final_day = datetime.strptime(fecha_final, DT_DAY_FMT)
@@ -238,7 +259,8 @@ def calcular_transitos_natal(
     fecha_final: str,
     posiciones_natales: Optional[Dict[str, float]] = None,
     cuspides: Optional[List[float]] = None,
-    incluir_luna: bool = True
+    incluir_luna: bool = True,
+    sistema: str = "P"  # ⬅️ NUEVO PARÁMETRO
 ) -> List[Dict[str, Any]]:
 
     inicio_day = datetime.strptime(fecha_inicio, DT_DAY_FMT)
@@ -306,7 +328,8 @@ def calcular_transitos_natal(
                 estado_prev[p]["signo_idx"] = signo_idx
 
             if cuspides and len(cuspides) == 12:
-                casa_now = obtener_casa_desde_cuspides(lon_now, cuspides)
+                # ⬇️ USAR LA NUEVA FUNCIÓN
+                casa_now = obtener_casa_desde_cuspides_o_wholesign(lon_now, cuspides, sistema)
                 prev_casa = estado_prev[p]["casa"]
 
                 if prev_casa is None:
@@ -438,7 +461,8 @@ def calcular_transitos_completo(
     posiciones_natales: Optional[Dict[str, float]] = None,
     cuspides: Optional[List[float]] = None,
     incluir_luna: bool = True,
-    incluir_cielo: bool = True
+    incluir_cielo: bool = True,
+    sistema: str = "P"
 ) -> Dict[str, Any]:
     salida = {
         "periodo": {"inicio": fecha_inicio, "fin": fecha_final},
@@ -450,7 +474,8 @@ def calcular_transitos_completo(
     
     if posiciones_natales:
         salida["transitos_natal"] = calcular_transitos_natal(
-            fecha_inicio, fecha_final, posiciones_natales, cuspides, incluir_luna
+            fecha_inicio, fecha_final, posiciones_natales, cuspides, incluir_luna,
+            sistema=sistema
         )
     
     if incluir_cielo:
