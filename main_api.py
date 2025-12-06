@@ -54,6 +54,17 @@ class RequestTransitos(BaseModel):
     incluir_cielo: bool = True
     incluir_luna: bool = True
 
+class RequestAspectos(BaseModel):
+    año: int
+    mes: int
+    dia: int
+    hora: int = 12
+    minuto: int = Field(0, ge=0, le=59)
+    latitud: float
+    longitud: float
+    zona_horaria: int
+    sistema: Literal['P', 'W'] = 'P'
+    
 @app.post("/calcular-transitos")
 def api_calcular_transitos(req: RequestTransitos):
     try:
@@ -178,4 +189,87 @@ def api_carta_natal_sola(req: RequestCarta):
         )
         return resultado
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+def calcular_aspectos_natales(carta: Dict[str, Any], orbe_max: float = 5.0):
+    """
+    Calcula aspectos entre planetas natales con orbe <= orbe_max
+    """
+    ASPECTOS = {
+        "conjunción": 0.0,
+        "sextil": 60.0,
+        "cuadratura": 90.0,
+        "trígono": 120.0,
+        "oposición": 180.0
+    }
+    
+    planetas = ['SOL', 'LUNA', 'MERCURIO', 'VENUS', 'MARTE', 
+                'JUPITER', 'SATURNO', 'URANO', 'NEPTUNO', 'PLUTON',
+                'NODO_NORTE', 'ASCENDENTE', 'MEDIO_CIELO']
+    
+    aspectos_encontrados = []
+    
+    for i, p1 in enumerate(planetas):
+        if p1 not in carta:
+            continue
+        lon1 = carta[p1].get('longitud', 0)
+        
+        for p2 in planetas[i+1:]:
+            if p2 not in carta:
+                continue
+            lon2 = carta[p2].get('longitud', 0)
+            
+            # Calcular diferencia angular
+            diff = abs(lon1 - lon2)
+            if diff > 180:
+                diff = 360 - diff
+            
+            # Verificar cada aspecto
+            for nombre_aspecto, angulo_objetivo in ASPECTOS.items():
+                distancia = abs(diff - angulo_objetivo)
+                
+                if distancia <= orbe_max:
+                    aspectos_encontrados.append({
+                        "planeta1": p1,
+                        "planeta2": p2,
+                        "aspecto": nombre_aspecto,
+                        "orbe": round(distancia, 2),
+                        "descripcion": f"{p1} {nombre_aspecto} {p2} (orbe {round(distancia, 2)}°)"
+                    })
+    
+    # Ordenar por orbe (más exactos primero)
+    aspectos_encontrados.sort(key=lambda x: x['orbe'])
+    
+    return aspectos_encontrados
+
+@app.post("/aspectos-natales")
+def api_aspectos_natales(req: RequestAspectos):
+    """
+    Calcula aspectos natales con orbe <= 5°
+    """
+    try:
+        # Calcular carta natal
+        resultado = calcular_carta_natal(
+            req.año, req.mes, req.dia, req.hora, req.minuto,
+            req.latitud, req.longitud, req.zona_horaria,
+            sistema_casas=req.sistema
+        )
+        
+        # Extraer carta
+        carta = resultado.get('carta', {})
+        
+        # Calcular aspectos
+        aspectos = calcular_aspectos_natales(carta, orbe_max=5.0)
+        
+        print(f"✅ Aspectos calculados: {len(aspectos)}")
+        
+        return {
+            "aspectos": aspectos,
+            "total": len(aspectos)
+        }
+        
+    except Exception as e:
+        print(f"❌ ERROR en /aspectos-natales: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

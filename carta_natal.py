@@ -188,3 +188,4 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
         "carta": carta,
         "cuspides": cuspides_signos
     }
+
