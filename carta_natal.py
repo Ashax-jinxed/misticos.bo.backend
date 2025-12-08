@@ -92,9 +92,9 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
             'longitud': longitud
         }
 
-    # Nodo norte y sur
+    # Nodo norte y sur - CORREGIDO con flags
     try:
-        res = swe.calc_ut(jd, swe.TRUE_NODE)
+        res = swe.calc_ut(jd, swe.TRUE_NODE, swe.FLG_SWIEPH)
         longitud = float(res[0][0])
         signo, grado = obtener_signo_grado(longitud)
         casa = obtener_casa(longitud)
@@ -116,9 +116,9 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
     except Exception as e:
         print("Nodo error:", e)
 
-    # Lilith
+    # Lilith - CORREGIDO usar True Black Moon (osculating)
     try:
-        res = swe.calc_ut(jd, swe.MEAN_APOG)
+        res = swe.calc_ut(jd, swe.OSCU_APOG, swe.FLG_SWIEPH)
         longitud = float(res[0][0])
         signo, grado = obtener_signo_grado(longitud)
         casa = obtener_casa(longitud)
@@ -132,7 +132,7 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
 
     # Quirón
     try:
-        res = swe.calc_ut(jd, swe.CHIRON)
+        res = swe.calc_ut(jd, swe.CHIRON, swe.FLG_SWIEPH)
         longitud = float(res[0][0])
         signo, grado = obtener_signo_grado(longitud)
         casa = obtener_casa(longitud)
@@ -147,10 +147,20 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
             'retrogrado': False, 'longitud': 0
         }
 
-    # Parte de fortuna
+    # Parte de fortuna - CORREGIDO con fórmula día/noche
     sol_long = carta['SOL']['longitud']
     luna_long = carta['LUNA']['longitud']
-    fortuna_long = (ascendente + luna_long - sol_long) % 360
+    
+    # Determinar si es carta diurna (Sol sobre horizonte = casas 7-12)
+    es_diurna = carta['SOL']['casa'] >= 7
+    
+    if es_diurna:
+        # Fórmula diurna: ASC + Luna - Sol
+        fortuna_long = (ascendente + luna_long - sol_long) % 360
+    else:
+        # Fórmula nocturna: ASC + Sol - Luna
+        fortuna_long = (ascendente + sol_long - luna_long) % 360
+    
     signo, grado = obtener_signo_grado(fortuna_long)
     casa = obtener_casa(fortuna_long)
     carta['PARTE_FORTUNA'] = {
@@ -188,4 +198,3 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
         "carta": carta,
         "cuspides": cuspides_signos
     }
-
