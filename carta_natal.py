@@ -36,6 +36,13 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
     cuspides_placidus = list(casas_data[0][:12])
     ascendente = casas_data[1][0]
     mc = casas_data[1][1]
+    
+    # 🐛 DEBUG - Imprime valores de ASC y MC
+    print(f"\n🐛 DEBUG ASC: {ascendente:.4f}° = {obtener_signo_grado(ascendente)[0]} {obtener_signo_grado(ascendente)[1]:.2f}°")
+    print(f"🐛 DEBUG MC: {mc:.4f}° = {obtener_signo_grado(mc)[0]} {obtener_signo_grado(mc)[1]:.2f}°")
+    print(f"🐛 DEBUG Cúspide Casa 10: {cuspides_placidus[9]:.4f}° = {obtener_signo_grado(cuspides_placidus[9])[0]} {obtener_signo_grado(cuspides_placidus[9])[1]:.2f}°")
+    print(f"🐛 MC == Cúspide 10? {abs(mc - cuspides_placidus[9]) < 0.01}")
+    
     signo_ascendente = int(ascendente // 30) % 12
 
     if sistema_casas == 'W':
@@ -98,6 +105,10 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
         longitud = float(res[0][0])
         signo, grado = obtener_signo_grado(longitud)
         casa = obtener_casa(longitud)
+        
+        # 🐛 DEBUG - Nodo Norte
+        print(f"🐛 DEBUG Nodo Norte: {longitud:.4f}° = {signo} {grado:.2f}° → Casa {casa}")
+        
         carta['NODO_NORTE'] = {
             'signo': signo, 'grado': grado,
             'casa': casa, 'retrogrado': False,
@@ -163,6 +174,11 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
     
     signo, grado = obtener_signo_grado(fortuna_long)
     casa = obtener_casa(fortuna_long)
+    
+    # 🐛 DEBUG - Parte de Fortuna
+    print(f"🐛 DEBUG Parte Fortuna: {fortuna_long:.4f}° = {signo} {grado:.2f}° → Casa {casa}")
+    print(f"🐛 Es diurna? {es_diurna} (Sol en casa {carta['SOL']['casa']})")
+    
     carta['PARTE_FORTUNA'] = {
         'signo': signo, 'grado': grado,
         'casa': casa, 'retrogrado': False,
@@ -173,14 +189,14 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
     signo_asc, grado_asc = obtener_signo_grado(ascendente)
     carta['ASCENDENTE'] = {
         'signo': signo_asc, 'grado': grado_asc,
-        'casa': obtener_casa(ascendente),
+        'casa': 1,  # ASC siempre es casa 1
         'retrogrado': False, 'longitud': ascendente
     }
 
     signo_mc, grado_mc = obtener_signo_grado(mc)
     carta['MEDIO_CIELO'] = {
         'signo': signo_mc, 'grado': grado_mc,
-        'casa': obtener_casa(mc),
+        'casa': 10,  # MC siempre es casa 10
         'retrogrado': False, 'longitud': mc
     }
 
@@ -193,6 +209,13 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
     for idx, cdeg in enumerate(cuspides, start=1):
         signo_idx = int(cdeg // 30) % 12
         cuspides_signos[str(idx)] = signos_list[signo_idx]
+
+    # 🐛 DEBUG - Imprime todas las cúspides
+    print("\n🏠 CÚSPIDES PLACIDUS:")
+    for i, cusp in enumerate(cuspides, start=1):
+        signo_c, grado_c = obtener_signo_grado(cusp)
+        print(f"Casa {i}: {signo_c} {grado_c:.2f}° ({cusp:.2f}°)")
+    print()
 
     return {
         "carta": carta,
