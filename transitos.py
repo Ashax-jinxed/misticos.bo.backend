@@ -646,131 +646,144 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
 def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any]]:
     """
     Calcula Luna Nueva, Cuarto Creciente, Luna Llena y Cuarto Menguante
-    encontrando el momento EXACTO en que la elongación Sol—Luna = 0°, 90°, 180°, 270°.
-    Usa interpolación lineal con paso de 30 minutos para alta precisión.
+    buscando el momento exacto de elongación = 0°, 90°, 180°, 270°.
     """
-
     inicio = datetime.strptime(fecha_inicio, DT_DAY_FMT)
     fin = datetime.strptime(fecha_final, DT_DAY_FMT)
-    delta = timedelta(minutes=30)
-
-    fases = []
-    objetivos = {
-        "Luna Nueva": 0,
-        "Cuarto Creciente": 90,
-        "Luna Llena": 180,
-        "Cuarto Menguante": 270
-    }
     
-    # 🆕 VENTANA DE BLOQUEO: evita detectar la misma fase múltiples veces
-    ultima_deteccion = {nombre: None for nombre in objetivos.keys()}
-    VENTANA_BLOQUEO = timedelta(days=5)  # Mínimo 5 días entre fases iguales
-
+    fases = []
+    
+    # 🔧 Estrategia: buscar mínimos de distancia a cada objetivo
+    # en vez de detectar cruces (más robusto)
+    
+    objetivos = [
+        ("Luna Nueva", 0),
+        ("Cuarto Creciente", 90),
+        ("Luna Llena", 180),
+        ("Cuarto Menguante", 270)
+    ]
+    
+    # Paso 1: Escaneo grueso cada 6 horas para encontrar regiones candidatas
+    delta_grueso = timedelta(hours=6)
+    candidatos = {nombre: [] for nombre, _ in objetivos}
+    
     fecha = inicio
-
     while fecha <= fin + timedelta(days=1):
-        jd = swe.julday(
-            fecha.year, fecha.month, fecha.day,
-            fecha.hour + fecha.minute / 60.0
-        )
-
+        jd = swe.julday(fecha.year, fecha.month, fecha.day, 
+                        fecha.hour + fecha.minute / 60.0)
+        
         lon_sol = _calc_long(jd, swe.SUN)
         lon_luna = _calc_long(jd, swe.MOON)
-
-        if lon_sol is None or lon_luna is None:
-            fecha += delta
+        
+        if lon_sol is not None and lon_luna is not None:
+            elong = (lon_luna - lon_sol) % 360
+            
+            # Calcular distancia a cada objetivo
+            for nombre, ang_obj in objetivos:
+                dist = min(abs(elong - ang_obj), 360 - abs(elong - ang_obj))
+                
+                # Si está dentro de 45° del objetivo, es candidato
+                if dist < 45:
+                    candidatos[nombre].append((fecha, dist, elong))
+        
+        fecha += delta_grueso
+    
+    # Paso 2: Refinar cada candidato con búsqueda fina
+    for nombre, ang_obj in objetivos:
+        regiones = candidatos[nombre]
+        if not regiones:
             continue
-
-        elong = (lon_luna - lon_sol) % 360
-
-        # Siguiente punto temporal para interpolación
-        fecha_next = fecha + delta
-        jd_next = swe.julday(
-            fecha_next.year, fecha_next.month, fecha_next.day,
-            fecha_next.hour + fecha_next.minute / 60.0
-        )
-
-        lon_sol_next = _calc_long(jd_next, swe.SUN)
-        lon_luna_next = _calc_long(jd_next, swe.MOON)
-
-        if lon_sol_next is None or lon_luna_next is None:
-            fecha += delta
-            continue
-
-        elong_next = (lon_luna_next - lon_sol_next) % 360
-
-        # Buscar cruces con las elongaciones objetivo
-        for nombre, ang_obj in objetivos.items():
+        
+        # Agrupar candidatos cercanos en ventanas de 3 días
+        regiones.sort(key=lambda x: x[0])
+        ventanas = []
+        ventana_actual = [regiones[0]]
+        
+        for i in range(1, len(regiones)):
+            if regiones[i][0] - ventana_actual[-1][0] < timedelta(days=3):
+                ventana_actual.append(regiones[i])
+            else:
+                ventanas.append(ventana_actual)
+                ventana_actual = [regiones[i]]
+        ventanas.append(ventana_actual)
+        
+        # Refinar cada ventana
+        for ventana in ventanas:
+            # Encontrar el mejor candidato en la ventana
+            mejor = min(ventana, key=lambda x: x[1])
+            fecha_base = mejor[0]
             
-            # 🆕 VERIFICAR VENTANA DE BLOQUEO
-            if ultima_deteccion[nombre] is not None:
-                tiempo_transcurrido = fecha - ultima_deteccion[nombre]
-                if tiempo_transcurrido < VENTANA_BLOQUEO:
-                    continue  # ⏭️ Saltar esta fase, muy cerca de la anterior
+            # Búsqueda fina: ±12 horas con paso de 15 minutos
+            delta_fino = timedelta(minutes=15)
+            mejor_dist = 999
+            mejor_fecha = fecha_base
+            mejor_elong = mejor[2]
             
-            # 🔧 DETECCIÓN DE CRUCE MEJORADA
-            # Normalizar ángulos para manejar wrap-around
-            def normalizar_angulo(ang, referencia):
-                """Normaliza un ángulo al rango más cercano a la referencia"""
-                while ang - referencia > 180:
-                    ang -= 360
-                while referencia - ang > 180:
-                    ang += 360
-                return ang
+            fecha_busqueda = fecha_base - timedelta(hours=12)
+            fecha_limite = fecha_base + timedelta(hours=12)
             
-            elong_norm = normalizar_angulo(elong, ang_obj)
-            elong_next_norm = normalizar_angulo(elong_next, ang_obj)
+            while fecha_busqueda <= fecha_limite:
+                jd = swe.julday(fecha_busqueda.year, fecha_busqueda.month, 
+                               fecha_busqueda.day, 
+                               fecha_busqueda.hour + fecha_busqueda.minute / 60.0)
+                
+                lon_sol = _calc_long(jd, swe.SUN)
+                lon_luna = _calc_long(jd, swe.MOON)
+                
+                if lon_sol is not None and lon_luna is not None:
+                    elong = (lon_luna - lon_sol) % 360
+                    dist = min(abs(elong - ang_obj), 360 - abs(elong - ang_obj))
+                    
+                    if dist < mejor_dist:
+                        mejor_dist = dist
+                        mejor_fecha = fecha_busqueda
+                        mejor_elong = elong
+                
+                fecha_busqueda += delta_fino
             
-            # Verificar si hay cruce
-            cruza = (
-                (elong_norm <= ang_obj <= elong_next_norm) or
-                (elong_next_norm <= ang_obj <= elong_norm)
-            )
-            
-            # 🎯 Tolerancia estricta solo cuando está muy cerca
-            distancia_minima = min(abs(elong_norm - ang_obj), abs(elong_next_norm - ang_obj))
-            cruza = cruza or (distancia_minima < 0.5)  # ✅ Tolerancia reducida
-
-            if cruza:
-                # Interpolación lineal
-                if elong_next_norm != elong_norm:
-                    frac = (ang_obj - elong_norm) / (elong_next_norm - elong_norm)
-                    frac = max(0, min(1, frac))  # 🔒 Limitar entre 0 y 1
-                    fecha_exacta = fecha + frac * delta
-                else:
-                    fecha_exacta = fecha
-
-                jd_exacta = swe.julday(
-                    fecha_exacta.year, fecha_exacta.month, fecha_exacta.day,
-                    fecha_exacta.hour + fecha_exacta.minute / 60.0
-                )
-
-                lon_luna_exacta = _calc_long(jd_exacta, swe.MOON)
-                if lon_luna_exacta is not None:
-                    signo = SIGNOS_NOMBRES[int(lon_luna_exacta // 30)]
+            # Solo agregar si está dentro del rango de fechas solicitado
+            if inicio <= mejor_fecha <= fin + timedelta(days=1):
+                jd_final = swe.julday(mejor_fecha.year, mejor_fecha.month,
+                                     mejor_fecha.day,
+                                     mejor_fecha.hour + mejor_fecha.minute / 60.0)
+                
+                lon_luna_final = _calc_long(jd_final, swe.MOON)
+                if lon_luna_final is not None:
+                    signo = SIGNOS_NOMBRES[int(lon_luna_final // 30)]
                     fases.append({
                         "tipo": "fase_lunar",
                         "subtipo": nombre,
                         "descripcion": f"{nombre} en {signo}",
-                        "fecha": fecha_exacta.strftime("%Y-%m-%d %H:%M:%S"),
+                        "fecha": mejor_fecha.strftime("%Y-%m-%d %H:%M:%S"),
                         "signo": signo,
-                        "grado": lon_luna_exacta % 30,
-                        "planeta": "LUNA"
+                        "grado": lon_luna_final % 30,
+                        "planeta": "LUNA",
+                        "_debug_dist": f"{mejor_dist:.3f}°"  # Para verificar precisión
                     })
-                    
-                    # 🆕 REGISTRAR DETECCIÓN
-                    ultima_deteccion[nombre] = fecha_exacta
-
-        fecha += delta
-
-    # Ordenar por fecha
+    
+    # Ordenar y filtrar duplicados finales (por si acaso)
     fases.sort(key=lambda x: x["fecha"])
-
-    print(
-        f"DEBUG: Encontradas {len(fases)} fases lunares entre {fecha_inicio} y {fecha_final}"
-    )
-
-    return fases
+    
+    # Eliminar duplicados que estén a menos de 1 hora
+    fases_unicas = []
+    for fase in fases:
+        fecha_fase = datetime.strptime(fase["fecha"], "%Y-%m-%d %H:%M:%S")
+        
+        # Verificar que no haya otra fase del mismo tipo muy cerca
+        duplicado = False
+        for existente in fases_unicas:
+            if existente["subtipo"] == fase["subtipo"]:
+                fecha_existente = datetime.strptime(existente["fecha"], "%Y-%m-%d %H:%M:%S")
+                if abs((fecha_fase - fecha_existente).total_seconds()) < 3600:  # 1 hora
+                    duplicado = True
+                    break
+        
+        if not duplicado:
+            fases_unicas.append(fase)
+    
+    print(f"DEBUG: Encontradas {len(fases_unicas)} fases lunares entre {fecha_inicio} y {fecha_final}")
+    
+    return fases_unicas
 
 # --- NUEVO: Calcular cúspides (casa) desde fecha/hora natal y coordenadas ---
 def calcular_cuspides_desde_natal(year: int, month: int, day: int, hour: int, minute: int,
