@@ -646,7 +646,7 @@ def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any
 def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any]]:
     """
     Calcula Luna Nueva, Cuarto Creciente, Luna Llena y Cuarto Menguante
-    encontrando el momento EXACTO en que la elongación Sol–Luna = 0°, 90°, 180°, 270°.
+    encontrando el momento EXACTO en que la elongación Sol—Luna = 0°, 90°, 180°, 270°.
     Usa interpolación lineal con paso de 30 minutos para alta precisión.
     """
 
@@ -661,10 +661,14 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
         "Luna Llena": 180,
         "Cuarto Menguante": 270
     }
+    
+    # 🆕 VENTANA DE BLOQUEO: evita detectar la misma fase múltiples veces
+    ultima_deteccion = {nombre: None for nombre in objetivos.keys()}
+    VENTANA_BLOQUEO = timedelta(days=5)  # Mínimo 5 días entre fases iguales
 
     fecha = inicio
 
-    while fecha <= fin + timedelta(days=1):  # Asegura cubrir el último día completo
+    while fecha <= fin + timedelta(days=1):
         jd = swe.julday(
             fecha.year, fecha.month, fecha.day,
             fecha.hour + fecha.minute / 60.0
@@ -697,24 +701,41 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
 
         # Buscar cruces con las elongaciones objetivo
         for nombre, ang_obj in objetivos.items():
-
-            diff = abs(elong - ang_obj)
-            diff_next = abs(elong_next - ang_obj)
-
-            # Condiciones de cruce o cercanía
+            
+            # 🆕 VERIFICAR VENTANA DE BLOQUEO
+            if ultima_deteccion[nombre] is not None:
+                tiempo_transcurrido = fecha - ultima_deteccion[nombre]
+                if tiempo_transcurrido < VENTANA_BLOQUEO:
+                    continue  # ⏭️ Saltar esta fase, muy cerca de la anterior
+            
+            # 🔧 DETECCIÓN DE CRUCE MEJORADA
+            # Normalizar ángulos para manejar wrap-around
+            def normalizar_angulo(ang, referencia):
+                """Normaliza un ángulo al rango más cercano a la referencia"""
+                while ang - referencia > 180:
+                    ang -= 360
+                while referencia - ang > 180:
+                    ang += 360
+                return ang
+            
+            elong_norm = normalizar_angulo(elong, ang_obj)
+            elong_next_norm = normalizar_angulo(elong_next, ang_obj)
+            
+            # Verificar si hay cruce
             cruza = (
-                diff <= 1 or diff_next <= 1 or
-                (elong <= ang_obj <= elong_next) or
-                (elong_next <= ang_obj <= elong) or
-                (elong > elong_next and (elong <= ang_obj or ang_obj <= elong_next))
+                (elong_norm <= ang_obj <= elong_next_norm) or
+                (elong_next_norm <= ang_obj <= elong_norm)
             )
+            
+            # 🎯 Tolerancia estricta solo cuando está muy cerca
+            distancia_minima = min(abs(elong_norm - ang_obj), abs(elong_next_norm - ang_obj))
+            cruza = cruza or (distancia_minima < 0.5)  # ✅ Tolerancia reducida
 
             if cruza:
                 # Interpolación lineal
-                if elong_next != elong:
-                    frac = (ang_obj - elong) / (elong_next - elong)
-                    if frac < 0:  # Ajustar wrap-around
-                        frac += 1
+                if elong_next_norm != elong_norm:
+                    frac = (ang_obj - elong_norm) / (elong_next_norm - elong_norm)
+                    frac = max(0, min(1, frac))  # 🔒 Limitar entre 0 y 1
                     fecha_exacta = fecha + frac * delta
                 else:
                     fecha_exacta = fecha
@@ -736,26 +757,20 @@ def calcular_fases_lunares(fecha_inicio: str, fecha_final: str) -> List[Dict[str
                         "grado": lon_luna_exacta % 30,
                         "planeta": "LUNA"
                     })
+                    
+                    # 🆕 REGISTRAR DETECCIÓN
+                    ultima_deteccion[nombre] = fecha_exacta
 
         fecha += delta
 
-    # ---- FILTRO: una fase por tipo por mes ----
-    fases_filtradas = {}
-    for f in fases:
-        mes = f["fecha"][:7]  # YYYY-MM
-        clave = f"{f['subtipo']}_{mes}"
-        if clave not in fases_filtradas:
-            fases_filtradas[clave] = f
-
-    fases_unicas = list(fases_filtradas.values())
-    fases_unicas.sort(key=lambda x: x["fecha"])
+    # Ordenar por fecha
+    fases.sort(key=lambda x: x["fecha"])
 
     print(
-        f"DEBUG: Encontradas {len(fases)} fases lunares crudas, "
-        f"filtradas a {len(fases_unicas)} importantes entre {fecha_inicio} y {fecha_final}"
+        f"DEBUG: Encontradas {len(fases)} fases lunares entre {fecha_inicio} y {fecha_final}"
     )
 
-    return fases_unicas
+    return fases
 
 # --- NUEVO: Calcular cúspides (casa) desde fecha/hora natal y coordenadas ---
 def calcular_cuspides_desde_natal(year: int, month: int, day: int, hour: int, minute: int,
