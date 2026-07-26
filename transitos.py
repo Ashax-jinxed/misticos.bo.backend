@@ -549,9 +549,7 @@ def calcular_transitos_completo(
     salida["fases_lunares"] = calcular_fases_lunares(fecha_inicio, fecha_final)
     
     return salida
-   
-    
-    return salida
+
 # Agregar esta función a transitos.py
 
 def calcular_eclipses(fecha_inicio: str, fecha_final: str) -> List[Dict[str, Any]]:

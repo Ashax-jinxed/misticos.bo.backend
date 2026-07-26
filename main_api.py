@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Literal, Dict, Any
 from pathlib import Path
+from astro_seek_scraper import obtener_url_imagen_carta
 import os
 import swisseph as swe
 
@@ -38,6 +39,9 @@ class RequestCarta(BaseModel):
     longitud: float
     zona_horaria: int
     sistema: Literal['P', 'W'] = 'P'
+
+class RequestImagenCarta(BaseModel):
+    url_astroseek: str    
 
 class RequestTransitos(BaseModel):
     fecha_inicio: str
@@ -190,6 +194,20 @@ def api_carta_natal_sola(req: RequestCarta):
         return resultado
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/imagen-carta-astroseek")
+def api_imagen_carta_astroseek(req: RequestImagenCarta):
+    """
+    Recibe la URL de cálculo de astro-seek ya generada por el frontend,
+    consulta esa página y devuelve la URL de la imagen de la rueda astrológica.
+    """
+    try:
+        url_imagen = obtener_url_imagen_carta(req.url_astroseek)
+        return {"url_imagen": url_imagen}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     
 def calcular_aspectos_natales(carta: Dict[str, Any], orbe_max: float = 5.0):
     """

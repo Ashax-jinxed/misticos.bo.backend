@@ -4,3 +4,4 @@ pydantic
 typing_extensions
 swisseph
 pyswisseph
+requests
