@@ -8,6 +8,13 @@ from astro_seek_scraper import obtener_url_imagen_carta
 import os
 import swisseph as swe
 
+DEBUG = os.getenv("ASTRO_DEBUG", "0") == "1"
+
+
+def _dbg(*args):
+    if DEBUG:
+        print(*args)
+
 # Importa módulos locales
 from carta_natal import calcular_carta_natal_sola as calcular_carta_natal
 from transitos import calcular_transitos_completo
@@ -72,11 +79,7 @@ class RequestAspectos(BaseModel):
 @app.post("/calcular-transitos")
 def api_calcular_transitos(req: RequestTransitos):
     try:
-        print(f"\n{'='*60}")
-        print(f"🔥 REQUEST: {req.fecha_inicio} → {req.fecha_final}")
-        print(f"   Modo: {'NATAL' if not req.incluir_cielo else 'CIELO'}")
-        print(f"   🏠 Sistema de casas: {req.sistema}")
-        print(f"{'='*60}\n")
+        _dbg(f"🔥 REQUEST: {req.fecha_inicio} → {req.fecha_final} | sistema {req.sistema}")
         
         # ------------------------------------------------------
         # 1) CALCULAR CARTA NATAL (solo para posiciones)
@@ -97,12 +100,11 @@ def api_calcular_transitos(req: RequestTransitos):
             for nombre, info in carta["carta"].items():
                 if isinstance(info, dict) and "longitud" in info:
                     posiciones_natales[nombre] = float(info["longitud"])
-            print(f"✅ Posiciones natales: {len(posiciones_natales)}")
+            _dbg(f"✅ Posiciones natales: {len(posiciones_natales)}")
 
         # ------------------------------------------------------
         # 3) CALCULAR TRÁNSITOS (sin pasar cúspides - las calcula internamente)
         # ------------------------------------------------------
-        print(f"\n🔄 Calculando tránsitos...")
 
         resultado = calcular_transitos_completo(
             req.fecha_inicio,
@@ -110,7 +112,7 @@ def api_calcular_transitos(req: RequestTransitos):
             posiciones_natales=posiciones_natales if posiciones_natales else None,
             cuspides=None,  # ← Ya no pasamos cúspides
             incluir_luna=req.incluir_luna,
-            incluir_cielo=True,
+            incluir_cielo=req.incluir_cielo,
             sistema=req.sistema,
             # ⬇️ PASAR DATOS NATALES:
             año_natal=req.año_natal,
@@ -128,20 +130,9 @@ def api_calcular_transitos(req: RequestTransitos):
         eclipses = resultado.get("eclipses", [])
         fases_lunares = resultado.get("fases_lunares", [])
 
-        # ------------------------------------------------------
-        # 5) DEBUG RESUMIDO
-        # ------------------------------------------------------
-        print(f"\n📊 RESULTADOS:")
-        print(f"   🌍 Tránsitos natales: {len(transitos_natal)} planetas")
-        for t in transitos_natal:
-            print(f"      - {t.get('planeta')}: {len(t.get('eventos', []))} eventos")
-
-        print(f"   🌌 Tránsitos cielo: {len(transitos_cielo)} planetas")
-        for t in transitos_cielo:
-            print(f"      - {t.get('planeta')}: {len(t.get('eventos', []))} eventos")
-
-        print(f"   🌑 Eclipses: {len(eclipses)}")
-        print(f"   🌙 Fases Lunares: {len(fases_lunares)}")
+        if DEBUG:
+            print(f"📊 natal={len(transitos_natal)} cielo={len(transitos_cielo)} "
+                  f"eclipses={len(eclipses)} fases={len(fases_lunares)}")
 
         # ------------------------------------------------------
         # 6) RESPUESTA
@@ -159,7 +150,6 @@ def api_calcular_transitos(req: RequestTransitos):
             "fases_lunares": fases_lunares
         }
 
-        print(f"\n📤 Enviando respuesta final…")
         return respuesta
 
     except Exception as e:
@@ -209,55 +199,46 @@ def api_imagen_carta_astroseek(req: RequestImagenCarta):
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     
+_ASPECTOS_NATALES = (
+    ("conjunción", 0.0),
+    ("sextil", 60.0),
+    ("cuadratura", 90.0),
+    ("trígono", 120.0),
+    ("oposición", 180.0),
+)
+
+_PLANETAS_ASPECTOS = ('SOL', 'LUNA', 'MERCURIO', 'VENUS', 'MARTE',
+                      'JUPITER', 'SATURNO', 'URANO', 'NEPTUNO', 'PLUTON',
+                      'NODO_NORTE', 'ASCENDENTE', 'MEDIO_CIELO')
+
+
 def calcular_aspectos_natales(carta: Dict[str, Any], orbe_max: float = 5.0):
     """
     Calcula aspectos entre planetas natales con orbe <= orbe_max
     """
-    ASPECTOS = {
-        "conjunción": 0.0,
-        "sextil": 60.0,
-        "cuadratura": 90.0,
-        "trígono": 120.0,
-        "oposición": 180.0
-    }
-    
-    planetas = ['SOL', 'LUNA', 'MERCURIO', 'VENUS', 'MARTE', 
-                'JUPITER', 'SATURNO', 'URANO', 'NEPTUNO', 'PLUTON',
-                'NODO_NORTE', 'ASCENDENTE', 'MEDIO_CIELO']
-    
+    presentes = [(p, carta[p].get('longitud', 0)) for p in _PLANETAS_ASPECTOS if p in carta]
     aspectos_encontrados = []
-    
-    for i, p1 in enumerate(planetas):
-        if p1 not in carta:
-            continue
-        lon1 = carta[p1].get('longitud', 0)
-        
-        for p2 in planetas[i+1:]:
-            if p2 not in carta:
-                continue
-            lon2 = carta[p2].get('longitud', 0)
-            
-            # Calcular diferencia angular
+
+    for i, (p1, lon1) in enumerate(presentes):
+        for p2, lon2 in presentes[i + 1:]:
             diff = abs(lon1 - lon2)
             if diff > 180:
                 diff = 360 - diff
-            
-            # Verificar cada aspecto
-            for nombre_aspecto, angulo_objetivo in ASPECTOS.items():
+
+            for nombre_aspecto, angulo_objetivo in _ASPECTOS_NATALES:
                 distancia = abs(diff - angulo_objetivo)
-                
                 if distancia <= orbe_max:
+                    orbe_r = round(distancia, 2)
                     aspectos_encontrados.append({
                         "planeta1": p1,
                         "planeta2": p2,
                         "aspecto": nombre_aspecto,
-                        "orbe": round(distancia, 2),
-                        "descripcion": f"{p1} {nombre_aspecto} {p2} (orbe {round(distancia, 2)}°)"
+                        "orbe": orbe_r,
+                        "descripcion": f"{p1} {nombre_aspecto} {p2} (orbe {orbe_r}°)"
                     })
-    
+
     # Ordenar por orbe (más exactos primero)
     aspectos_encontrados.sort(key=lambda x: x['orbe'])
-    
     return aspectos_encontrados
 
 @app.post("/aspectos-natales")
@@ -279,7 +260,7 @@ def api_aspectos_natales(req: RequestAspectos):
         # Calcular aspectos
         aspectos = calcular_aspectos_natales(carta, orbe_max=5.0)
         
-        print(f"✅ Aspectos calculados: {len(aspectos)}")
+        _dbg(f"✅ Aspectos calculados: {len(aspectos)}")
         
         return {
             "aspectos": aspectos,
