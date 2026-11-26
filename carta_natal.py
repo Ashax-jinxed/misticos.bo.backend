@@ -209,14 +209,20 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
         str(idx): _SIGNOS[int(cdeg // 30) % 12]
         for idx, cdeg in enumerate(cuspides, start=1)
     }
-
+    
+    cuspides_grados = {
+        str(idx): round(float(cdeg % 30), 4)
+        for idx, cdeg in enumerate(cuspides, start=1)
+    }
+    
     if DEBUG:
         _dbg("\n🏠 CÚSPIDES PLACIDUS:")
         for i, cusp in enumerate(cuspides, start=1):
             signo_c, grado_c = obtener_signo_grado(cusp)
             _dbg(f"Casa {i}: {signo_c} {grado_c:.2f}° ({cusp:.2f}°)")
 
-    return {
+        return {
         "carta": carta,
-        "cuspides": cuspides_signos
-    }
+        "cuspides": cuspides_signos,
+        "cuspides_grados": cuspides_grados
+        }   
