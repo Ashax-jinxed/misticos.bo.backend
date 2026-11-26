@@ -47,7 +47,8 @@ PLANETAS = {
     'SATURNO': swe.SATURN,
     'URANO': swe.URANUS,
     'NEPTUNO': swe.NEPTUNE,
-    'PLUTON': swe.PLUTO
+    'PLUTON': swe.PLUTO,
+    'QUIRON': swe.CHIRON
 }
 
 SIGNOS_NOMBRES = [
