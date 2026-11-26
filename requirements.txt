@@ -2,7 +2,6 @@ fastapi
 uvicorn[standard]
 pydantic
 typing_extensions
-swisseph
 pyswisseph
 requests
  numpy>=1.26
