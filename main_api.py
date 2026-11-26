@@ -272,3 +272,20 @@ def api_aspectos_natales(req: RequestAspectos):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/debug-quiron")
+def debug_quiron():
+    from swe_lock import SWE_LOCK
+    info = {"ephe_path": EPHE_PATH, "archivos": {}}
+    for f in ("seas_18.se1", "semo_18.se1", "sepl_18.se1"):
+        p = os.path.join(EPHE_PATH, f)
+        info["archivos"][f] = os.path.getsize(p) if os.path.exists(p) else "FALTA"
+    jd = swe.julday(1990, 1, 1, 12.0)
+    with SWE_LOCK:
+        try:
+            xx, ret = swe.calc_ut(jd, swe.CHIRON, swe.FLG_SWIEPH | swe.FLG_SPEED)
+            info["retflag"] = ret
+            info["longitud"] = float(xx[0])
+        except Exception as e:
+            info["error"] = repr(e)
+    return info    
