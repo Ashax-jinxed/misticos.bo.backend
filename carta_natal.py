@@ -152,15 +152,20 @@ def calcular_carta_natal_sola(año, mes, dia, hora, minuto, latitud, longitud, z
 
     # Quirón
     try:
-        res = swe.calc_ut(jd, swe.CHIRON, swe.FLG_SWIEPH)
-        lon_q = float(res[0][0])
+        xx, ret = swe.calc_ut(jd, swe.CHIRON, _FLAGS_VEL)
+        if ret < 0 or (ret & swe.FLG_SWIEPH) == 0:
+            raise RuntimeError(
+                f"Quirón sin efemérides (retflag={ret}). Revisá seas_18.se1 y sepl_18.se1 en {EPHE_PATH}"
+            )
+        lon_q = float(xx[0])
         signo, grado = obtener_signo_grado(lon_q)
         carta['QUIRON'] = {
             'signo': signo, 'grado': grado,
             'casa': obtener_casa(lon_q), 'retrogrado': False,
             'longitud': lon_q
         }
-    except:
+    except Exception as e:
+        print("Quirón error:", e)
         carta['QUIRON'] = {
             'signo': 'N/A', 'grado': 0, 'casa': 0,
             'retrogrado': False, 'longitud': 0
